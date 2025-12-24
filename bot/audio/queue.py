@@ -114,3 +114,31 @@ class MusicQueue:
                 self._queue = deque(queue_list)
                 return removed
             return None
+    
+    async def move(self, from_position: int, to_position: int) -> Optional[Track]:
+        """
+        Déplace une piste d'une position à une autre
+        
+        Args:
+            from_position: Position actuelle de la piste (1-indexed)
+            to_position: Nouvelle position désirée (1-indexed)
+            
+        Returns:
+            La piste déplacée ou None si positions invalides
+        """
+        async with self._lock:
+            if not (1 <= from_position <= len(self._queue) and 1 <= to_position <= len(self._queue)):
+                return None
+            
+            # Convertir en index 0-based
+            from_idx = from_position - 1
+            to_idx = to_position - 1
+            
+            # Déplacer la piste
+            queue_list = list(self._queue)
+            track = queue_list.pop(from_idx)
+            queue_list.insert(to_idx, track)
+            self._queue = deque(queue_list)
+            
+            return track
+

@@ -157,6 +157,12 @@ class MusicPlayer:
         self._pause_position = 0.0
         logger.info("Lecture arrêtée")
     
+    async def clear_queue(self) -> None:
+        """Vide la queue sans arrêter la lecture en cours"""
+        await self.queue.clear()
+        self._update_activity()
+        logger.info("Queue vidée")
+    
     async def pause(self) -> bool:
         """
         Met en pause la lecture et sauvegarde la position actuelle

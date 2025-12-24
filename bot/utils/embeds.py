@@ -1,22 +1,56 @@
-"""Générateur d'embeds Discord pour les messages du bot"""
+"""Générateur d'embeds Discord pour la musique"""
 
 import discord
-from typing import List, Optional
+from typing import Optional, List
+import math
+
 from bot.config import Config
 from bot.audio.track import Track
 from bot.audio.queue import MusicQueue
 
 
+def create_progress_bar(current_seconds: float, total_seconds: int, length: int = 20) -> str:
+    """
+    Crée une barre de progression visuelle
+    
+    Args:
+        current_seconds: Position actuelle en secondes
+        total_seconds: Durée totale en secondes
+        length: Longueur de la barre (nombre de caractères)
+        
+    Returns:
+        Barre de progression formatée avec temps
+    """
+    if total_seconds == 0:
+        return "[" + "░" * length + "] 0:00 / 0:00"
+    
+    # Calculer le pourcentage
+    percentage = min(current_seconds / total_seconds, 1.0)
+    filled = int(length * percentage)
+    
+    # Créer la barre
+    bar = "█" * filled + "░" * (length - filled)
+    
+    # Formater les temps
+    current_min = int(current_seconds // 60)
+    current_sec = int(current_seconds % 60)
+    total_min = int(total_seconds // 60)
+    total_sec = int(total_seconds % 60)
+    
+    return f"[{bar}] {current_min}:{current_sec:02d} / {total_min}:{total_sec:02d}"
+
 class MusicEmbeds:
     """Générateur d'embeds Discord formatés pour la musique"""
     
     @staticmethod
-    def now_playing(track: Track) -> discord.Embed:
+    def now_playing(track: Track, progress_bar: str = None, loop_enabled: bool = False) -> discord.Embed:
         """
         Crée un embed pour la piste en cours de lecture
         
         Args:
             track: Piste actuellement jouée
+            progress_bar: Barre de progression optionnelle
+            loop_enabled: Indique si la répétition est activée
             
         Returns:
             Embed Discord formaté
@@ -44,6 +78,20 @@ class MusicEmbeds:
             value=track.source.capitalize(),
             inline=True
         )
+        
+        if progress_bar:
+            embed.add_field(
+                name="Progression",
+                value=f"`{progress_bar}`",
+                inline=False
+            )
+        
+        if loop_enabled:
+            embed.add_field(
+                name="🔁 Répétition",
+                value="Activée",
+                inline=False
+            )
         
         if track.thumbnail:
             embed.set_thumbnail(url=track.thumbnail)

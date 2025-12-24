@@ -9,6 +9,16 @@ from discord.ext import commands
 from bot.config import Config
 from bot.audio.player import MusicPlayer
 from bot.database.sqlite import SQLiteDatabase
+from bot.utils.exceptions import (
+    MusicError,
+    NotInVoiceChannel,
+    BotNotConnected,
+    TrackNotFound,
+    PlaylistNotFound,
+    ConnectionTimeout,
+    QueueEmpty,
+    InvalidVolume
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +34,9 @@ class MusicBot(commands.Bot):
         intents.guilds = True           # Requis pour accéder aux serveurs
         
         super().__init__(
-            command_prefix=Config.COMMAND_PREFIX,
+            command_prefix="!",  # Gardé pour compatibilité mais non utilisé
             intents=intents,
-            help_command=commands.DefaultHelpCommand()
+            help_command=None  # Désactivé car on utilise les slash commands
         )
         
         # Stockage des players par guild (serveur)
@@ -46,6 +56,20 @@ class MusicBot(commands.Bot):
         
         # Charger les cogs (modules de commandes)
         await self._load_cogs()
+        
+        # Synchroniser les commandes slash avec Discord
+        logger.info("Synchronisation des commandes slash...")
+        try:
+            # Pour développement: sync sur un serveur spécifique (instantané)
+            # guild = discord.Object(id=YOUR_GUILD_ID)
+            # self.tree.copy_global_to(guild=guild)
+            # await self.tree.sync(guild=guild)
+            
+            # Pour production: sync global (peut prendre jusqu'à 1h)
+            synced = await self.tree.sync()
+            logger.info(f"{len(synced)} commande(s) synchronisée(s)")
+        except Exception as e:
+            logger.error(f"Erreur lors de la synchronisation des commandes: {e}")
         
     async def _load_cogs(self):
         """Charge dynamiquement tous les cogs disponibles"""

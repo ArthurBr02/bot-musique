@@ -3,10 +3,12 @@
 import logging
 from typing import Optional
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 from bot.audio.player import MusicPlayer
-from bot.utils.embeds import MusicEmbeds
+from bot.utils.embeds import MusicEmbeds, create_progress_bar
+from bot.utils.views import MusicControlView, QueuePaginationView
 from bot.utils.exceptions import (
     NotInVoiceChannel,
     BotNotConnected,
@@ -24,11 +26,11 @@ class Music(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
     
-    def _get_player(self, ctx: commands.Context) -> MusicPlayer:
+    def _get_player(self, interaction: discord.Interaction) -> MusicPlayer:
         """Récupère le player pour le serveur actuel"""
-        return self.bot.get_player(ctx.guild)
+        return self.bot.get_player(interaction.guild)
     
-    async def _ensure_voice(self, ctx: commands.Context) -> bool:
+    async def _ensure_voice(self, interaction: discord.Interaction) -> bool:
         """
         Vérifie que l'utilisateur et le bot sont dans un canal vocal
         
@@ -40,19 +42,20 @@ class Music(commands.Cog):
             ConnectionTimeout: Si la connexion au canal vocal timeout
         """
         # Vérifier que l'utilisateur est dans un canal vocal
-        if not ctx.author.voice:
+        if not interaction.user.voice:
             raise NotInVoiceChannel()
         
         # Vérifier que le bot peut se connecter
-        player = self._get_player(ctx)
+        player = self._get_player(interaction)
         if not player.is_connected():
             # Connecter le bot au canal de l'utilisateur
             # ConnectionTimeout sera propagée si timeout
-            success = await player.connect(ctx.author.voice.channel)
+            success = await player.connect(interaction.user.voice.channel)
             if not success:
-                await ctx.send(embed=MusicEmbeds.error(
-                    "Impossible de se connecter au canal vocal."
-                ))
+                await interaction.response.send_message(
+                    embed=MusicEmbeds.error("Impossible de se connecter au canal vocal."),
+                    ephemeral=True
+                )
                 return False
         
         return True
@@ -293,24 +296,42 @@ class Music(commands.Cog):
     @commands.command(name='queue', aliases=['q'])
     async def queue(self, ctx: commands.Context, page: int = 1):
         """
-        Affiche la file d'attente
+        Affiche la file d'attente avec pagination interactive
         
         Usage: !queue [page]
         """
         player = self._get_player(ctx)
         
-        embed = await MusicEmbeds.queue_list(
-            player.queue,
-            player.current,
-            page
-        )
+        # Calculer le nombre total de pages
+        queue_size = await player.queue.size()
+        items_per_page = 10
+        total_pages = max(1, (queue_size + items_per_page - 1) // items_per_page)
         
-        await ctx.send(embed=embed)
+        # Créer les embeds pour toutes les pages
+        embeds = []
+        for p in range(1, total_pages + 1):
+            embed = await MusicEmbeds.queue_list(
+                player.queue,
+                player.current,
+                p
+            )
+            embeds.append(embed)
+        
+        # Si une seule page, pas besoin de pagination
+        if len(embeds) == 1:
+            await ctx.send(embed=embeds[0])
+        else:
+            # Créer la vue avec pagination
+            view = QueuePaginationView(embeds)
+            view.current_page = max(0, min(page - 1, len(embeds) - 1))
+            view._update_buttons()
+            message = await ctx.send(embed=embeds[view.current_page], view=view)
+            view.message = message
     
     @commands.command(name='nowplaying', aliases=['np', 'current'])
     async def nowplaying(self, ctx: commands.Context):
         """
-        Affiche la piste en cours de lecture
+        Affiche la piste en cours de lecture avec contrôles interactifs
         
         Usage: !nowplaying
         """
@@ -322,7 +343,21 @@ class Music(commands.Cog):
             ))
             return
         
-        await ctx.send(embed=MusicEmbeds.now_playing(player.current))
+        # Créer la barre de progression
+        current_pos = player.get_current_position()
+        progress_bar = create_progress_bar(current_pos, player.current.duration)
+        
+        # Créer l'embed avec la barre de progression
+        embed = MusicEmbeds.now_playing(
+            player.current,
+            progress_bar=progress_bar,
+            loop_enabled=player.loop
+        )
+        
+        # Créer la vue avec les boutons de contrôle
+        view = MusicControlView(player)
+        message = await ctx.send(embed=embed, view=view)
+        view.message = message
     
     @commands.command(name='volume', aliases=['vol', 'v'])
     async def volume(self, ctx: commands.Context, volume: int):
@@ -379,6 +414,112 @@ class Music(commands.Cog):
         await ctx.send(embed=MusicEmbeds.success(
             f"{emoji} Répétition {status}."
         ))
+    
+    @commands.command(name='shuffle')
+    async def shuffle(self, ctx: commands.Context):
+        """
+        Mélange aléatoirement la file d'attente
+        
+        Usage: !shuffle
+        """
+        player = self._get_player(ctx)
+        
+        if not player.is_connected():
+            await ctx.send(embed=MusicEmbeds.error(
+                "Le bot n'est pas connecté à un canal vocal."
+            ))
+            return
+        
+        queue_size = await player.queue.size()
+        if queue_size == 0:
+            await ctx.send(embed=MusicEmbeds.error(
+                "La file d'attente est vide."
+            ))
+            return
+        
+        await player.queue.shuffle()
+        await ctx.send(embed=MusicEmbeds.success(
+            f"🔀 File d'attente mélangée ({queue_size} piste(s))."
+        ))
+    
+    @commands.command(name='clear')
+    async def clear(self, ctx: commands.Context):
+        """
+        Vide la file d'attente sans arrêter la lecture en cours
+        
+        Usage: !clear
+        """
+        player = self._get_player(ctx)
+        
+        if not player.is_connected():
+            await ctx.send(embed=MusicEmbeds.error(
+                "Le bot n'est pas connecté à un canal vocal."
+            ))
+            return
+        
+        queue_size = await player.queue.size()
+        if queue_size == 0:
+            await ctx.send(embed=MusicEmbeds.error(
+                "La file d'attente est déjà vide."
+            ))
+            return
+        
+        await player.clear_queue()
+        await ctx.send(embed=MusicEmbeds.success(
+            f"🗑️ File d'attente vidée ({queue_size} piste(s) retirée(s))."
+        ))
+    
+    @commands.command(name='remove', aliases=['rm'])
+    async def remove(self, ctx: commands.Context, position: int):
+        """
+        Retire une piste de la file d'attente
+        
+        Usage: !remove <position>
+        """
+        player = self._get_player(ctx)
+        
+        if not player.is_connected():
+            await ctx.send(embed=MusicEmbeds.error(
+                "Le bot n'est pas connecté à un canal vocal."
+            ))
+            return
+        
+        removed_track = await player.queue.remove(position)
+        
+        if removed_track:
+            await ctx.send(embed=MusicEmbeds.success(
+                f"🗑️ Piste retirée de la position {position}:\n`{removed_track.title}`"
+            ))
+        else:
+            await ctx.send(embed=MusicEmbeds.error(
+                f"Position invalide: {position}. Utilisez `!queue` pour voir les positions."
+            ))
+    
+    @commands.command(name='move', aliases=['mv'])
+    async def move(self, ctx: commands.Context, from_pos: int, to_pos: int):
+        """
+        Déplace une piste dans la file d'attente
+        
+        Usage: !move <position_actuelle> <nouvelle_position>
+        """
+        player = self._get_player(ctx)
+        
+        if not player.is_connected():
+            await ctx.send(embed=MusicEmbeds.error(
+                "Le bot n'est pas connecté à un canal vocal."
+            ))
+            return
+        
+        moved_track = await player.queue.move(from_pos, to_pos)
+        
+        if moved_track:
+            await ctx.send(embed=MusicEmbeds.success(
+                f"↔️ Piste déplacée de la position {from_pos} à {to_pos}:\n`{moved_track.title}`"
+            ))
+        else:
+            await ctx.send(embed=MusicEmbeds.error(
+                f"Positions invalides: {from_pos} → {to_pos}. Utilisez `!queue` pour voir les positions."
+            ))
 
 
 async def setup(bot):
