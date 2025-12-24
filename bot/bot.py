@@ -6,6 +6,7 @@ import discord
 from discord.ext import commands
 
 from bot.config import Config
+from bot.audio.player import MusicPlayer
 
 logger = logging.getLogger(__name__)
 
@@ -92,17 +93,16 @@ class MusicBot(commands.Bot):
         
         # Nettoyer le player associé si existant
         if guild.id in self.players:
-            # TODO: Implémenter la déconnexion propre du player
+            await self.players[guild.id].disconnect()
             del self.players[guild.id]
     
-    def get_player(self, guild: discord.Guild):
+    def get_player(self, guild: discord.Guild) -> MusicPlayer:
         """Récupère ou crée un player pour un serveur"""
         if guild.id not in self.players:
-            # TODO: Créer un nouveau MusicPlayer (Phase 2)
-            # self.players[guild.id] = MusicPlayer(self, guild)
-            pass
+            self.players[guild.id] = MusicPlayer(self, guild)
+            logger.info(f"Player créé pour le serveur: {guild.name}")
         
-        return self.players.get(guild.id)
+        return self.players[guild.id]
     
     async def close(self):
         """Fermeture propre du bot"""
@@ -110,8 +110,6 @@ class MusicBot(commands.Bot):
         
         # Déconnecter tous les players
         for player in self.players.values():
-            # TODO: Implémenter la déconnexion propre (Phase 2)
-            # await player.disconnect()
-            pass
+            await player.disconnect()
         
         await super().close()
