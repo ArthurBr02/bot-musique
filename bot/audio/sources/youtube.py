@@ -179,17 +179,25 @@ class YouTubeSource:
             return None
     
     @staticmethod
-    def create_audio_source(stream_url: str):
+    def create_audio_source(stream_url: str, seek_position: float = 0):
         """
         Crée une source audio FFmpeg pour discord.py
         
         Args:
             stream_url: URL du stream audio
+            seek_position: Position de départ en secondes (pour resume)
             
         Returns:
             discord.FFmpegPCMAudio
         """
+        # Ajouter l'option -ss si une position de départ est spécifiée
+        before_options = YouTubeSource.FFMPEG_OPTIONS['before_options']
+        if seek_position > 0:
+            before_options = f'-ss {seek_position} {before_options}'
+            logger.info(f"Création de la source audio avec seek à {seek_position:.2f}s")
+        
         return discord.FFmpegPCMAudio(
             stream_url,
-            **YouTubeSource.FFMPEG_OPTIONS
+            before_options=before_options,
+            options=YouTubeSource.FFMPEG_OPTIONS['options']
         )

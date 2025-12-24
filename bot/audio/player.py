@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from typing import Optional
 import discord
 
@@ -35,6 +36,9 @@ class MusicPlayer:
         self._is_playing = False
         self._skip_requested = False
         self.youtube_source = YouTubeSource()
+        # Position tracking for pause/resume
+        self._playback_start_time: Optional[float] = None
+        self._pause_position: float = 0.0
     
     async def connect(self, channel: discord.VoiceChannel) -> bool:
         """
@@ -116,16 +120,25 @@ class MusicPlayer:
             self.voice_client.stop()
         self.current = None
         self._is_playing = False
+        # Réinitialiser le suivi de position
+        self._playback_start_time = None
+        self._pause_position = 0.0
         logger.info("Lecture arrêtée")
     
     async def pause(self) -> bool:
         """
-        Met en pause la lecture
+        Met en pause la lecture et sauvegarde la position actuelle
         
         Returns:
             True si pause réussie, False sinon
         """
         if self.voice_client and self.voice_client.is_playing():
+            # Calculer la position actuelle avant de mettre en pause
+            if self._playback_start_time is not None:
+                elapsed = time.time() - self._playback_start_time
+                self._pause_position += elapsed
+                logger.info(f"Pause à la position: {self._pause_position:.2f} secondes")
+            
             self.voice_client.pause()
             logger.info("Lecture en pause")
             return True
@@ -133,16 +146,55 @@ class MusicPlayer:
     
     async def resume(self) -> bool:
         """
-        Reprend la lecture
+        Reprend la lecture en régénérant l'URL du stream
+        Reprend à la position exacte où la lecture a été mise en pause
         
         Returns:
             True si reprise réussie, False sinon
         """
-        if self.voice_client and self.voice_client.is_paused():
-            self.voice_client.resume()
-            logger.info("Lecture reprise")
+        if not self.voice_client or not self.voice_client.is_paused():
+            return False
+        
+        if not self.current:
+            return False
+        
+        try:
+            # Arrêter la lecture actuelle
+            self.voice_client.stop()
+            
+            # Régénérer l'URL du stream pour éviter l'expiration
+            logger.info(f"Régénération de l'URL pour reprise: {self.current.title}")
+            stream_url = await self.youtube_source.get_fresh_stream_url(self.current)
+            
+            if not stream_url:
+                logger.error(f"Impossible de régénérer l'URL pour: {self.current.title}")
+                return False
+            
+            # Créer une nouvelle source audio avec l'URL fraîche et la position de reprise
+            logger.info(f"Reprise à la position: {self._pause_position:.2f} secondes")
+            audio_source = YouTubeSource.create_audio_source(stream_url, self._pause_position)
+            audio_source = discord.PCMVolumeTransformer(audio_source, volume=self.volume)
+            
+            # Créer un événement pour la fin de lecture
+            playback_finished = asyncio.Event()
+            
+            def after_playback(error):
+                if error:
+                    logger.error(f"Erreur de lecture après reprise: {error}")
+                playback_finished.set()
+            
+            # Relancer la lecture avec la nouvelle source
+            self.voice_client.play(audio_source, after=after_playback)
+            
+            # Réinitialiser le temps de départ pour le suivi de position
+            self._playback_start_time = time.time()
+            
+            logger.info(f"Lecture reprise avec URL fraîche: {self.current.title}")
             return True
-        return False
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de la reprise: {e}")
+            return False
     
     async def skip(self) -> bool:
         """
@@ -177,6 +229,21 @@ class MusicPlayer:
     def is_connected(self) -> bool:
         """Vérifie si le bot est connecté à un canal vocal"""
         return self.voice_client is not None and self.voice_client.is_connected()
+    
+    def get_current_position(self) -> float:
+        """
+        Retourne la position actuelle de lecture en secondes
+        Utile pour le débogage et les futures fonctionnalités (barre de progression, etc.)
+        
+        Returns:
+            Position en secondes
+        """
+        if not self._is_playing or self._playback_start_time is None:
+            return self._pause_position
+        
+        # Calculer la position actuelle = position de pause + temps écoulé depuis la reprise
+        elapsed = time.time() - self._playback_start_time
+        return self._pause_position + elapsed
     
     async def _player_loop(self) -> None:
         """Boucle principale de lecture audio"""
@@ -223,6 +290,11 @@ class MusicPlayer:
                     # Lancer la lecture
                     if self.voice_client and self.voice_client.is_connected():
                         self._is_playing = True
+                        
+                        # Initialiser le temps de départ et réinitialiser la position de pause
+                        self._playback_start_time = time.time()
+                        self._pause_position = 0.0
+                        
                         self.voice_client.play(audio_source, after=after_playback)
                         logger.info(f"Lecture en cours: {track.title}")
                         

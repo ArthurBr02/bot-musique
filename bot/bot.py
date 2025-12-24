@@ -7,6 +7,7 @@ from discord.ext import commands
 
 from bot.config import Config
 from bot.audio.player import MusicPlayer
+from bot.database.sqlite import SQLiteDatabase
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +32,16 @@ class MusicBot(commands.Bot):
         # guild_id -> MusicPlayer
         self.players: Dict[int, any] = {}
         
+        # Base de données pour les playlists
+        self.db: Optional[SQLiteDatabase] = None
+        
     async def setup_hook(self):
         """Hook appelé lors de l'initialisation du bot"""
         logger.info("Initialisation du bot...")
+        
+        # Initialiser la base de données
+        self.db = SQLiteDatabase()
+        await self.db.init()
         
         # Charger les cogs (modules de commandes)
         await self._load_cogs()
@@ -42,7 +50,7 @@ class MusicBot(commands.Bot):
         """Charge dynamiquement tous les cogs disponibles"""
         cogs_to_load = [
             'bot.cogs.music',      # Commandes musicales
-            # 'bot.cogs.playlist',   # À implémenter en Phase 4
+            'bot.cogs.playlist',   # Gestion des playlists
         ]
         
         for cog in cogs_to_load:
@@ -111,5 +119,9 @@ class MusicBot(commands.Bot):
         # Déconnecter tous les players
         for player in self.players.values():
             await player.disconnect()
+        
+        # Fermer la base de données
+        if self.db:
+            await self.db.close()
         
         await super().close()
