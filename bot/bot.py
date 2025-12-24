@@ -102,7 +102,7 @@ class MusicBot(commands.Bot):
         await self.change_presence(
             activity=discord.Activity(
                 type=discord.ActivityType.listening,
-                name=f"{Config.COMMAND_PREFIX}play"
+                name=f"/help"
             )
         )
         
@@ -186,7 +186,7 @@ class MusicBot(commands.Bot):
         
         # Gérer les erreurs standard de discord.py
         if isinstance(error, commands.CommandNotFound):
-            await ctx.send(f"❌ Commande inconnue. Utilisez `{Config.COMMAND_PREFIX}help` pour voir les commandes disponibles.")
+            await ctx.send(f"❌ Commande inconnue. Utilisez `/help` pour voir les commandes disponibles.")
         
         elif isinstance(error, commands.MissingRequiredArgument):
             await ctx.send(f"❌ Argument manquant: `{error.param.name}`")
