@@ -1,3 +1,6 @@
 """Module utilitaires pour le bot"""
 
-__all__ = []
+from . import embeds
+from . import exceptions
+
+__all__ = ["embeds", "exceptions"]

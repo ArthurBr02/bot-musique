@@ -30,6 +30,8 @@ class Config:
     MAX_QUEUE_SIZE: int = int(os.getenv("MAX_QUEUE_SIZE", "100"))
     DEFAULT_VOLUME: float = float(os.getenv("DEFAULT_VOLUME", "0.5"))
     INACTIVITY_TIMEOUT: int = int(os.getenv("INACTIVITY_TIMEOUT", "300"))  # 5 minutes
+    ALONE_TIMEOUT: int = int(os.getenv("ALONE_TIMEOUT", "60"))  # 1 minute
+    CONNECTION_TIMEOUT: int = int(os.getenv("CONNECTION_TIMEOUT", "10"))  # 10 secondes
     
     # Couleurs pour les embeds Discord
     COLOR_PRIMARY: int = 0x3498db  # Bleu

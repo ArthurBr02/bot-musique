@@ -11,6 +11,11 @@ from bot.audio.queue import MusicQueue
 from bot.audio.sources.youtube import YouTubeSource
 from bot.audio.sources.spotify import SpotifySource
 from bot.config import Config
+from bot.utils.exceptions import (
+    ConnectionTimeout,
+    BotNotConnected,
+    InvalidVolume
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,25 +46,43 @@ class MusicPlayer:
         # Position tracking for pause/resume
         self._playback_start_time: Optional[float] = None
         self._pause_position: float = 0.0
+        # Activity tracking for auto-disconnect
+        self._last_activity_time: Optional[float] = time.time()
     
-    async def connect(self, channel: discord.VoiceChannel) -> bool:
+    async def connect(self, channel: discord.VoiceChannel, timeout: int = None) -> bool:
         """
         Connecte le bot à un canal vocal
         
         Args:
             channel: Canal vocal à rejoindre
+            timeout: Timeout de connexion en secondes (défaut: Config.CONNECTION_TIMEOUT)
             
         Returns:
-            True si connexion réussie, False sinon
+            True si connexion réussie
+            
+        Raises:
+            ConnectionTimeout: Si la connexion prend trop de temps
         """
+        if timeout is None:
+            timeout = Config.CONNECTION_TIMEOUT
+        
         try:
             if self.voice_client and self.voice_client.is_connected():
                 # Déjà connecté, déplacer vers le nouveau canal
-                await self.voice_client.move_to(channel)
+                await asyncio.wait_for(
+                    self.voice_client.move_to(channel),
+                    timeout=timeout
+                )
             else:
-                self.voice_client = await channel.connect()
+                self.voice_client = await asyncio.wait_for(
+                    channel.connect(),
+                    timeout=timeout
+                )
             
             logger.info(f"Connecté au canal vocal: {channel.name} ({self.guild.name})")
+            
+            # Mettre à jour l'activité
+            self._update_activity()
             
             # Démarrer la boucle de lecture si pas déjà démarrée
             if not self._player_task or self._player_task.done():
@@ -67,6 +90,9 @@ class MusicPlayer:
             
             return True
             
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout lors de la connexion au canal vocal: {channel.name}")
+            raise ConnectionTimeout()
         except Exception as e:
             logger.error(f"Erreur lors de la connexion au canal vocal: {e}")
             return False
@@ -91,10 +117,13 @@ class MusicPlayer:
                 await self.voice_client.disconnect()
                 self.voice_client = None
             
-            # Nettoyer la queue
+            # Nettoyer la queue et réinitialiser l'état
             await self.queue.clear()
             self.current = None
             self._is_playing = False
+            self._playback_start_time = None
+            self._pause_position = 0.0
+            self._last_activity_time = None
             
             logger.info(f"Déconnecté du canal vocal ({self.guild.name})")
             
@@ -112,6 +141,7 @@ class MusicPlayer:
             Position dans la queue
         """
         position = await self.queue.add(track)
+        self._update_activity()
         logger.info(f"Piste ajoutée: {track.title} (position {position})")
         return position
     
@@ -142,6 +172,7 @@ class MusicPlayer:
                 logger.info(f"Pause à la position: {self._pause_position:.2f} secondes")
             
             self.voice_client.pause()
+            self._update_activity()
             logger.info("Lecture en pause")
             return True
         return False
@@ -190,6 +221,7 @@ class MusicPlayer:
             
             # Réinitialiser le temps de départ pour le suivi de position
             self._playback_start_time = time.time()
+            self._update_activity()
             
             logger.info(f"Lecture reprise avec URL fraîche: {self.current.title}")
             return True
@@ -208,6 +240,7 @@ class MusicPlayer:
         if self.voice_client and self.voice_client.is_playing():
             self._skip_requested = True
             self.voice_client.stop()
+            self._update_activity()
             logger.info("Piste passée")
             return True
         return False
@@ -218,10 +251,17 @@ class MusicPlayer:
         
         Args:
             volume: Niveau de volume (0.0 à 1.0)
+            
+        Raises:
+            InvalidVolume: Si le volume est hors limites
         """
-        self.volume = max(0.0, min(1.0, volume))
+        if not 0.0 <= volume <= 1.0:
+            raise InvalidVolume(volume * 100)
+        
+        self.volume = volume
         if self.voice_client and self.voice_client.source:
             self.voice_client.source.volume = self.volume
+        self._update_activity()
         logger.info(f"Volume réglé à {int(self.volume * 100)}%")
     
     def is_playing(self) -> bool:
@@ -247,15 +287,43 @@ class MusicPlayer:
         elapsed = time.time() - self._playback_start_time
         return self._pause_position + elapsed
     
+    def _update_activity(self) -> None:
+        """Met à jour le timestamp de la dernière activité"""
+        self._last_activity_time = time.time()
+    
+    def _check_inactivity(self) -> bool:
+        """
+        Vérifie si le timeout d'inactivité est dépassé
+        
+        Returns:
+            True si inactif depuis trop longtemps, False sinon
+        """
+        if self._last_activity_time is None:
+            return False
+        
+        inactive_time = time.time() - self._last_activity_time
+        return inactive_time >= Config.INACTIVITY_TIMEOUT
+    
     async def _player_loop(self) -> None:
         """Boucle principale de lecture audio"""
         logger.info("Boucle de lecture démarrée")
         
         try:
             while True:
+                # Vérifier l'inactivité
+                if self._check_inactivity():
+                    logger.info(f"Déconnexion par inactivité ({Config.INACTIVITY_TIMEOUT}s) - {self.guild.name}")
+                    await self.disconnect()
+                    break
+                
                 # Attendre qu'une piste soit disponible
                 while await self.queue.is_empty():
                     self._is_playing = False
+                    # Vérifier l'inactivité pendant l'attente
+                    if self._check_inactivity():
+                        logger.info(f"Déconnexion par inactivité ({Config.INACTIVITY_TIMEOUT}s) - {self.guild.name}")
+                        await self.disconnect()
+                        return
                     await asyncio.sleep(1)
                 
                 # Récupérer la prochaine piste
@@ -296,6 +364,7 @@ class MusicPlayer:
                         # Initialiser le temps de départ et réinitialiser la position de pause
                         self._playback_start_time = time.time()
                         self._pause_position = 0.0
+                        self._update_activity()
                         
                         self.voice_client.play(audio_source, after=after_playback)
                         logger.info(f"Lecture en cours: {track.title}")

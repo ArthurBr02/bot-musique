@@ -7,6 +7,13 @@ from discord.ext import commands
 
 from bot.audio.player import MusicPlayer
 from bot.utils.embeds import MusicEmbeds
+from bot.utils.exceptions import (
+    NotInVoiceChannel,
+    BotNotConnected,
+    TrackNotFound,
+    ConnectionTimeout,
+    InvalidVolume
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,19 +33,21 @@ class Music(commands.Cog):
         Vérifie que l'utilisateur et le bot sont dans un canal vocal
         
         Returns:
-            True si tout est OK, False sinon
+            True si tout est OK
+            
+        Raises:
+            NotInVoiceChannel: Si l'utilisateur n'est pas dans un canal vocal
+            ConnectionTimeout: Si la connexion au canal vocal timeout
         """
         # Vérifier que l'utilisateur est dans un canal vocal
         if not ctx.author.voice:
-            await ctx.send(embed=MusicEmbeds.error(
-                "Vous devez être dans un canal vocal pour utiliser cette commande."
-            ))
-            return False
+            raise NotInVoiceChannel()
         
         # Vérifier que le bot peut se connecter
         player = self._get_player(ctx)
         if not player.is_connected():
             # Connecter le bot au canal de l'utilisateur
+            # ConnectionTimeout sera propagée si timeout
             success = await player.connect(ctx.author.voice.channel)
             if not success:
                 await ctx.send(embed=MusicEmbeds.error(
@@ -322,18 +331,17 @@ class Music(commands.Cog):
         
         Usage: !volume <0-100>
         """
-        if not 0 <= volume <= 100:
-            await ctx.send(embed=MusicEmbeds.error(
-                "Le volume doit être entre 0 et 100."
-            ))
-            return
-        
         player = self._get_player(ctx)
-        player.set_volume(volume / 100)
         
-        await ctx.send(embed=MusicEmbeds.success(
-            f"🔊 Volume réglé à {volume}%."
-        ))
+        try:
+            player.set_volume(volume / 100)
+            await ctx.send(embed=MusicEmbeds.success(
+                f"🔊 Volume réglé à {volume}%."
+            ))
+        except InvalidVolume as e:
+            await ctx.send(embed=MusicEmbeds.error(
+                e.message
+            ))
     
     @commands.command(name='disconnect', aliases=['dc', 'leave'])
     async def disconnect(self, ctx: commands.Context):

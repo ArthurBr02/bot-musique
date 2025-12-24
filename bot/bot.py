@@ -1,5 +1,6 @@
 """Classe principale du bot Discord musical"""
 
+import asyncio
 import logging
 from typing import Dict, Optional
 import discord
@@ -75,6 +76,83 @@ class MusicBot(commands.Bot):
         
     async def on_command_error(self, ctx: commands.Context, error: Exception):
         """Gestionnaire d'erreurs global pour les commandes"""
+        # Gérer les exceptions personnalisées de musique
+        if isinstance(error, commands.CommandInvokeError):
+            original_error = error.original
+            
+            if isinstance(original_error, NotInVoiceChannel):
+                await ctx.send(
+                    embed=discord.Embed(
+                        description=f"❌ {original_error.message}",
+                        color=Config.COLOR_ERROR
+                    )
+                )
+                return
+            
+            elif isinstance(original_error, BotNotConnected):
+                await ctx.send(
+                    embed=discord.Embed(
+                        description=f"❌ {original_error.message}",
+                        color=Config.COLOR_ERROR
+                    )
+                )
+                return
+            
+            elif isinstance(original_error, TrackNotFound):
+                await ctx.send(
+                    embed=discord.Embed(
+                        description=f"❌ {original_error.message}",
+                        color=Config.COLOR_ERROR
+                    )
+                )
+                return
+            
+            elif isinstance(original_error, PlaylistNotFound):
+                await ctx.send(
+                    embed=discord.Embed(
+                        description=f"❌ {original_error.message}",
+                        color=Config.COLOR_ERROR
+                    )
+                )
+                return
+            
+            elif isinstance(original_error, ConnectionTimeout):
+                await ctx.send(
+                    embed=discord.Embed(
+                        description=f"❌ {original_error.message}",
+                        color=Config.COLOR_ERROR
+                    )
+                )
+                return
+            
+            elif isinstance(original_error, QueueEmpty):
+                await ctx.send(
+                    embed=discord.Embed(
+                        description=f"❌ {original_error.message}",
+                        color=Config.COLOR_WARNING
+                    )
+                )
+                return
+            
+            elif isinstance(original_error, InvalidVolume):
+                await ctx.send(
+                    embed=discord.Embed(
+                        description=f"❌ {original_error.message}",
+                        color=Config.COLOR_ERROR
+                    )
+                )
+                return
+            
+            elif isinstance(original_error, MusicError):
+                await ctx.send(
+                    embed=discord.Embed(
+                        description=f"❌ {original_error.message}",
+                        color=Config.COLOR_ERROR
+                    )
+                )
+                return
+        
+        # Gérer les erreurs standard de discord.py
         if isinstance(error, commands.CommandNotFound):
             await ctx.send(f"❌ Commande inconnue. Utilisez `{Config.COMMAND_PREFIX}help` pour voir les commandes disponibles.")
         
@@ -94,6 +172,39 @@ class MusicBot(commands.Bot):
     async def on_guild_join(self, guild: discord.Guild):
         """Événement déclenché quand le bot rejoint un serveur"""
         logger.info(f"Bot ajouté au serveur: {guild.name} (ID: {guild.id})")
+    
+    async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
+        """Événement déclenché lors d'un changement d'état vocal"""
+        # Vérifier si le bot est dans un canal vocal sur ce serveur
+        if member.guild.id not in self.players:
+            return
+        
+        player = self.players[member.guild.id]
+        
+        # Vérifier si le bot est connecté
+        if not player.is_connected() or not player.voice_client:
+            return
+        
+        # Obtenir le canal vocal du bot
+        bot_channel = player.voice_client.channel
+        
+        # Compter le nombre de membres (hors bots) dans le canal
+        members_in_channel = [m for m in bot_channel.members if not m.bot]
+        
+        # Si le bot est seul, démarrer un timer pour déconnexion
+        if len(members_in_channel) == 0:
+            logger.info(f"Bot seul dans le canal vocal - {member.guild.name}")
+            # Attendre le timeout avant de déconnecter
+            await asyncio.sleep(Config.ALONE_TIMEOUT)
+            
+            # Revérifier après le timeout
+            if player.is_connected() and player.voice_client:
+                bot_channel = player.voice_client.channel
+                members_in_channel = [m for m in bot_channel.members if not m.bot]
+                
+                if len(members_in_channel) == 0:
+                    logger.info(f"Déconnexion (seul dans le canal pendant {Config.ALONE_TIMEOUT}s) - {member.guild.name}")
+                    await player.disconnect()
     
     async def on_guild_remove(self, guild: discord.Guild):
         """Événement déclenché quand le bot quitte un serveur"""
