@@ -1,0 +1,2 @@
+Ajouter un mécanisme pour configurer un template par serveur et implémenter mistral pour recevoir un prompt, gérer un historique et être configuré avec le template
+Il faut développer un module AI à côté pour permettre de paramétrer les composantes liées à mistral et de gérer le chatbot

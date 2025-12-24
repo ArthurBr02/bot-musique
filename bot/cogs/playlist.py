@@ -3,6 +3,7 @@
 import logging
 from typing import Optional
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 from bot.database.sqlite import SQLiteDatabase
@@ -13,30 +14,31 @@ from bot.utils.embeds import MusicEmbeds
 logger = logging.getLogger(__name__)
 
 
-class PlaylistCog(commands.Cog, name="Playlist"):
+class PlaylistCog(commands.Cog):
     """Gestion des playlists personnalisées"""
     
     def __init__(self, bot):
         self.bot = bot
         self.db: SQLiteDatabase = bot.db
     
-    def _get_player(self, ctx: commands.Context) -> MusicPlayer:
+    def _get_player(self, interaction: discord.Interaction) -> MusicPlayer:
         """Récupère le player pour le serveur actuel"""
-        return self.bot.get_player(ctx.guild)
+        return self.bot.get_player(interaction.guild)
     
-    @commands.command(name='save_playlist', aliases=['savepl'])
-    async def save_playlist(self, ctx: commands.Context, *, name: str):
+    @app_commands.command(name="save_playlist", description="Sauvegarde la queue actuelle")
+    @app_commands.describe(name="Nom de la playlist")
+    async def save_playlist(self, interaction: discord.Interaction, *, name: str):
         """
         Sauvegarde la queue actuelle comme playlist
         
         Usage: !save_playlist <nom>
         """
-        player = self._get_player(ctx)
+        player = self._get_player(interaction)
         
         # Vérifier que la queue n'est pas vide
         queue_tracks = await player.queue.get_list()
         if not queue_tracks and not player.current:
-            await ctx.send(embed=MusicEmbeds.error(
+            await interaction.response.send_message(embed=MusicEmbeds.error(
                 "La file d'attente est vide. Ajoutez des pistes avant de sauvegarder."
             ))
             return
@@ -45,8 +47,8 @@ class PlaylistCog(commands.Cog, name="Playlist"):
             # Créer la playlist
             playlist = await self.db.create_playlist(
                 name=name,
-                guild_id=ctx.guild.id,
-                owner_id=ctx.author.id
+                guild_id=interaction.guild.id,
+                owner_id=interaction.user.id
             )
             
             # Ajouter la piste actuelle si elle existe
@@ -68,55 +70,57 @@ class PlaylistCog(commands.Cog, name="Playlist"):
             embed.add_field(name="Pistes", value=str(playlist.track_count), inline=True)
             embed.add_field(name="Durée", value=playlist.duration_formatted, inline=True)
             
-            await ctx.send(embed=embed)
+            await interaction.response.send_message(embed=embed)
             logger.info(f"Playlist sauvegardée: {name} ({playlist.track_count} pistes)")
             
         except ValueError as e:
-            await ctx.send(embed=MusicEmbeds.error(str(e)))
+            await interaction.response.send_message(embed=MusicEmbeds.error(str(e)))
         except Exception as e:
             logger.error(f"Erreur lors de la sauvegarde de la playlist: {e}")
-            await ctx.send(embed=MusicEmbeds.error(
+            await interaction.response.send_message(embed=MusicEmbeds.error(
                 "Une erreur s'est produite lors de la sauvegarde de la playlist."
             ))
     
-    @commands.command(name='load_playlist', aliases=['loadpl'])
-    async def load_playlist(self, ctx: commands.Context, *, name: str):
+    @app_commands.command(name="load_playlist", description="Charge une playlist")
+    @app_commands.describe(name="Nom de la playlist")
+    async def load_playlist(self, interaction: discord.Interaction, *, name: str):
         """
         Charge une playlist dans la queue
         
         Usage: !load_playlist <nom>
         """
         # Vérifier que l'utilisateur est dans un canal vocal
-        if not ctx.author.voice:
-            await ctx.send(embed=MusicEmbeds.error(
+        if not interaction.user.voice:
+            await interaction.response.send_message(embed=MusicEmbeds.error(
                 "Vous devez être dans un canal vocal pour charger une playlist."
             ))
             return
         
         try:
             # Récupérer la playlist
-            playlist = await self.db.get_playlist_by_name(name, ctx.guild.id)
+            playlist = await self.db.get_playlist_by_name(name, interaction.guild.id)
             
             if not playlist:
-                await ctx.send(embed=MusicEmbeds.error(
+                await interaction.response.send_message(embed=MusicEmbeds.error(
                     f"Playlist '{name}' introuvable."
                 ))
                 return
             
             if not playlist.tracks:
-                await ctx.send(embed=MusicEmbeds.warning(
+                await interaction.response.send_message(embed=MusicEmbeds.warning(
                     f"La playlist '{name}' est vide."
                 ))
                 return
             
-            player = self._get_player(ctx)
+            player = self._get_player(interaction)
             
             # Connecter le bot si nécessaire
             if not player.is_connected():
-                await player.connect(ctx.author.voice.channel)
+                await player.connect(interaction.user.voice.channel)
             
             # Message de chargement
-            loading_msg = await ctx.send(embed=MusicEmbeds.info(
+            await interaction.response.defer()
+            loading_msg = await interaction.followup.send(embed=MusicEmbeds.info(
                 f"⏳ Chargement de la playlist **{name}**...",
                 "Chargement"
             ))
@@ -125,7 +129,7 @@ class PlaylistCog(commands.Cog, name="Playlist"):
             added_count = 0
             for pl_track in playlist.tracks:
                 # Rechercher la piste pour obtenir les métadonnées complètes
-                track = await player.youtube_source.search(pl_track.url, ctx.author)
+                track = await player.youtube_source.search(pl_track.url, interaction.user)
                 if track:
                     await player.add_track(track)
                     added_count += 1
@@ -143,34 +147,34 @@ class PlaylistCog(commands.Cog, name="Playlist"):
             
         except Exception as e:
             logger.error(f"Erreur lors du chargement de la playlist: {e}")
-            await ctx.send(embed=MusicEmbeds.error(
+            await interaction.response.send_message(embed=MusicEmbeds.error(
                 "Une erreur s'est produite lors du chargement de la playlist."
             ))
     
-    @commands.command(name='list_playlists', aliases=['playlists', 'pls'])
-    async def list_playlists(self, ctx: commands.Context):
+    @app_commands.command(name="list_playlists", description="Liste toutes les playlists")
+    async def list_playlists(self, interaction: discord.Interaction):
         """
         Liste toutes les playlists du serveur
         
         Usage: !list_playlists
         """
         try:
-            playlists = await self.db.get_playlists_by_guild(ctx.guild.id)
+            playlists = await self.db.get_playlists_by_guild(interaction.guild.id)
             
             if not playlists:
-                await ctx.send(embed=MusicEmbeds.info(
+                await interaction.response.send_message(embed=MusicEmbeds.info(
                     "Aucune playlist sauvegardée sur ce serveur."
                 ))
                 return
             
             # Créer l'embed
             embed = discord.Embed(
-                title=f"📋 Playlists de {ctx.guild.name}",
+                title=f"📋 Playlists de {interaction.guild.name}",
                 color=MusicEmbeds.info("").color
             )
             
             for playlist in playlists[:25]:  # Limiter à 25 pour ne pas dépasser la limite Discord
-                owner = ctx.guild.get_member(playlist.owner_id)
+                owner = interaction.guild.get_member(playlist.owner_id)
                 owner_name = owner.display_name if owner else "Inconnu"
                 
                 value = f"👤 {owner_name} • {playlist.track_count} piste(s) • {playlist.duration_formatted}"
@@ -183,16 +187,17 @@ class PlaylistCog(commands.Cog, name="Playlist"):
             if len(playlists) > 25:
                 embed.set_footer(text=f"... et {len(playlists) - 25} autres playlists")
             
-            await ctx.send(embed=embed)
+            await interaction.response.send_message(embed=embed)
             
         except Exception as e:
             logger.error(f"Erreur lors de la liste des playlists: {e}")
-            await ctx.send(embed=MusicEmbeds.error(
+            await interaction.response.send_message(embed=MusicEmbeds.error(
                 "Une erreur s'est produite lors de la récupération des playlists."
             ))
     
-    @commands.command(name='remove_playlist', aliases=['deletepl', 'delpl'])
-    async def remove_playlist(self, ctx: commands.Context, *, name: str):
+    @app_commands.command(name="remove_playlist", description="Supprime une playlist")
+    @app_commands.describe(name="Nom de la playlist")
+    async def remove_playlist(self, interaction: discord.Interaction, *, name: str):
         """
         Supprime une playlist
         
@@ -200,17 +205,17 @@ class PlaylistCog(commands.Cog, name="Playlist"):
         """
         try:
             # Récupérer la playlist
-            playlist = await self.db.get_playlist_by_name(name, ctx.guild.id)
+            playlist = await self.db.get_playlist_by_name(name, interaction.guild.id)
             
             if not playlist:
-                await ctx.send(embed=MusicEmbeds.error(
+                await interaction.response.send_message(embed=MusicEmbeds.error(
                     f"Playlist '{name}' introuvable."
                 ))
                 return
             
             # Vérifier que l'utilisateur est le propriétaire ou a les permissions
-            if playlist.owner_id != ctx.author.id and not ctx.author.guild_permissions.manage_guild:
-                await ctx.send(embed=MusicEmbeds.error(
+            if playlist.owner_id != interaction.user.id and not interaction.user.guild_permissions.manage_guild:
+                await interaction.response.send_message(embed=MusicEmbeds.error(
                     "Vous n'avez pas la permission de supprimer cette playlist."
                 ))
                 return
@@ -218,34 +223,35 @@ class PlaylistCog(commands.Cog, name="Playlist"):
             # Supprimer la playlist
             await self.db.delete_playlist(playlist.id)
             
-            await ctx.send(embed=MusicEmbeds.success(
+            await interaction.response.send_message(embed=MusicEmbeds.success(
                 f"🗑️ Playlist **{name}** supprimée."
             ))
             logger.info(f"Playlist supprimée: {name}")
             
         except Exception as e:
             logger.error(f"Erreur lors de la suppression de la playlist: {e}")
-            await ctx.send(embed=MusicEmbeds.error(
+            await interaction.response.send_message(embed=MusicEmbeds.error(
                 "Une erreur s'est produite lors de la suppression de la playlist."
             ))
     
-    @commands.command(name='playlist_info', aliases=['plinfo'])
-    async def playlist_info(self, ctx: commands.Context, *, name: str):
+    @app_commands.command(name="playlist_info", description="Affiche les détails d'une playlist")
+    @app_commands.describe(name="Nom de la playlist")
+    async def playlist_info(self, interaction: discord.Interaction, *, name: str):
         """
         Affiche les détails d'une playlist
         
         Usage: !playlist_info <nom>
         """
         try:
-            playlist = await self.db.get_playlist_by_name(name, ctx.guild.id)
+            playlist = await self.db.get_playlist_by_name(name, interaction.guild.id)
             
             if not playlist:
-                await ctx.send(embed=MusicEmbeds.error(
+                await interaction.response.send_message(embed=MusicEmbeds.error(
                     f"Playlist '{name}' introuvable."
                 ))
                 return
             
-            owner = ctx.guild.get_member(playlist.owner_id)
+            owner = interaction.guild.get_member(playlist.owner_id)
             owner_name = owner.mention if owner else "Inconnu"
             
             embed = discord.Embed(
@@ -271,38 +277,40 @@ class PlaylistCog(commands.Cog, name="Playlist"):
             
             embed.set_footer(text=f"Créée le {playlist.created_at.strftime('%d/%m/%Y à %H:%M')}")
             
-            await ctx.send(embed=embed)
+            await interaction.response.send_message(embed=embed)
             
         except Exception as e:
             logger.error(f"Erreur lors de l'affichage de la playlist: {e}")
-            await ctx.send(embed=MusicEmbeds.error(
+            await interaction.response.send_message(embed=MusicEmbeds.error(
                 "Une erreur s'est produite lors de l'affichage de la playlist."
             ))
     
-    @commands.command(name='save_spotify_playlist', aliases=['savesp', 'importsp'])
-    async def save_spotify_playlist(self, ctx: commands.Context, url: str, *, name: str):
+    @app_commands.command(name="save_spotify_playlist", description="Importe une playlist Spotify")
+    @app_commands.describe(url="URL Spotify (playlist ou album)", name="Nom de la playlist")
+    async def save_spotify_playlist(self, interaction: discord.Interaction, url: str, *, name: str):
         """
         Crée une playlist depuis un lien Spotify (playlist ou album)
         
         Usage: !save_spotify_playlist <url_spotify> <nom>
         """
-        player = self._get_player(ctx)
+        player = self._get_player(interaction)
         
         # Vérifier que c'est une URL Spotify
         if not player.spotify_source.is_spotify_url(url):
-            await ctx.send(embed=MusicEmbeds.error(
+            await interaction.response.send_message(embed=MusicEmbeds.error(
                 "Veuillez fournir une URL Spotify valide (playlist ou album)."
             ))
             return
         
         if not player.spotify_source.is_available():
-            await ctx.send(embed=MusicEmbeds.error(
+            await interaction.response.send_message(embed=MusicEmbeds.error(
                 "L'intégration Spotify n'est pas configurée."
             ))
             return
         
         # Message de chargement
-        loading_msg = await ctx.send(embed=MusicEmbeds.info(
+        await interaction.response.defer()
+        loading_msg = await interaction.followup.send(embed=MusicEmbeds.info(
             f"⏳ Importation depuis Spotify...",
             "Chargement"
         ))
@@ -340,15 +348,15 @@ class PlaylistCog(commands.Cog, name="Playlist"):
             # Créer la playlist dans la base de données
             playlist = await self.db.create_playlist(
                 name=name,
-                guild_id=ctx.guild.id,
-                owner_id=ctx.author.id
+                guild_id=interaction.guild.id,
+                owner_id=interaction.user.id
             )
             
             # Convertir et ajouter toutes les pistes
             added_count = 0
             for spotify_track in spotify_tracks[:100]:  # Limiter à 100 pistes
                 # Rechercher sur YouTube pour obtenir l'URL
-                track = await player.youtube_source.search(spotify_track.search_query, ctx.author)
+                track = await player.youtube_source.search(spotify_track.search_query, interaction.user)
                 if track:
                     track.source = 'spotify'
                     await self.db.add_track_to_playlist(playlist.id, track)

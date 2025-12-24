@@ -60,30 +60,75 @@ class Music(commands.Cog):
         
         return True
     
-    @commands.command(name='play', aliases=['p'])
-    async def play(self, ctx: commands.Context, *, query: str):
-        """
-        Joue une musique depuis YouTube/Spotify ou l'ajoute à la queue
+    @app_commands.command(name="help", description="Affiche l'aide et la liste des commandes")
+    async def help(self, interaction: discord.Interaction):
+        """Affiche l'aide pour utiliser le bot"""
+        embed = discord.Embed(
+            title="🎵 Bot Musical - Aide",
+            description="Voici comment utiliser les commandes slash :",
+            color=MusicEmbeds.info("").color
+        )
         
-        Usage: !play <URL ou recherche>
-        """
+        embed.add_field(
+            name="📖 Comment utiliser les commandes",
+            value="Tapez `/` dans le chat pour voir toutes les commandes disponibles.\n"
+                  "Discord vous montrera automatiquement les paramètres requis et leur description.",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🎵 Commandes Musicales",
+            value="`/play` - Joue une musique\n"
+                  "`/pause` - Met en pause\n"
+                  "`/resume` - Reprend la lecture\n"
+                  "`/skip` - Passe à la piste suivante\n"
+                  "`/stop` - Arrête et vide la queue\n"
+                  "`/queue` - Affiche la file d'attente\n"
+                  "`/nowplaying` - Piste en cours\n"
+                  "`/volume` - Règle le volume\n"
+                  "`/loop` - Active/désactive la répétition\n"
+                  "`/shuffle` - Mélange la queue\n"
+                  "`/clear` - Vide la queue\n"
+                  "`/remove` - Retire une piste\n"
+                  "`/move` - Déplace une piste\n"
+                  "`/disconnect` - Déconnecte le bot",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="📋 Commandes Playlist",
+            value="`/save_playlist` - Sauvegarde la queue\n"
+                  "`/load_playlist` - Charge une playlist\n"
+                  "`/list_playlists` - Liste les playlists\n"
+                  "`/playlist_info` - Détails d'une playlist\n"
+                  "`/remove_playlist` - Supprime une playlist\n"
+                  "`/save_spotify_playlist` - Importe depuis Spotify",
+            inline=False
+        )
+        
+        embed.set_footer(text="💡 Astuce : Utilisez l'auto-complétion pour voir les paramètres de chaque commande")
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+    
+    
+    @app_commands.command(name="play", description="Joue une musique depuis YouTube/Spotify")
+    @app_commands.describe(query="URL YouTube/Spotify ou terme de recherche")
+    async def play(self, interaction: discord.Interaction, query: str):
+        """Joue une musique depuis YouTube/Spotify ou l'ajoute à la queue"""
         # Vérifier les conditions vocales
-        if not await self._ensure_voice(ctx):
+        if not await self._ensure_voice(interaction):
             return
         
-        player = self._get_player(ctx)
+        player = self._get_player(interaction)
         
-        # Message de chargement
-        loading_msg = await ctx.send(embed=MusicEmbeds.info(
-            f"🔍 Recherche en cours: `{query}`...",
-            "Chargement"
-        ))
+        # Defer la réponse car la recherche peut prendre du temps
+        await interaction.response.defer()
         
         try:
             # Vérifier si c'est une URL Spotify
             if player.spotify_source.is_spotify_url(query):
                 if not player.spotify_source.is_available():
-                    await loading_msg.edit(embed=MusicEmbeds.error(
+                    await interaction.followup.send(embed=MusicEmbeds.error(
                         "L'intégration Spotify n'est pas configurée. Veuillez configurer SPOTIFY_CLIENT_ID et SPOTIFY_CLIENT_SECRET."
                     ))
                     return
@@ -91,7 +136,7 @@ class Music(commands.Cog):
                 # Déterminer le type de lien Spotify
                 result = player.spotify_source.extract_id_from_url(query)
                 if not result:
-                    await loading_msg.edit(embed=MusicEmbeds.error(
+                    await interaction.followup.send(embed=MusicEmbeds.error(
                         "URL Spotify invalide."
                     ))
                     return
@@ -103,20 +148,15 @@ class Music(commands.Cog):
                     # Piste unique
                     spotify_track = await player.spotify_source.get_track(query)
                     if not spotify_track:
-                        await loading_msg.edit(embed=MusicEmbeds.error(
+                        await interaction.followup.send(embed=MusicEmbeds.error(
                             "Impossible de récupérer la piste Spotify."
                         ))
                         return
                     
                     # Convertir en recherche YouTube
-                    await loading_msg.edit(embed=MusicEmbeds.info(
-                        f"🎵 Conversion Spotify → YouTube: `{spotify_track.search_query}`...",
-                        "Chargement"
-                    ))
-                    
-                    track = await player.youtube_source.search(spotify_track.search_query, ctx.author)
+                    track = await player.youtube_source.search(spotify_track.search_query, interaction.user)
                     if not track:
-                        await loading_msg.edit(embed=MusicEmbeds.error(
+                        await interaction.followup.send(embed=MusicEmbeds.error(
                             f"Impossible de trouver sur YouTube: `{spotify_track.search_query}`"
                         ))
                         return
@@ -128,17 +168,13 @@ class Music(commands.Cog):
                     position = await player.add_track(track)
                     
                     if position == 1 and not player.is_playing():
-                        await loading_msg.edit(embed=MusicEmbeds.now_playing(track))
+                        await interaction.followup.send(embed=MusicEmbeds.now_playing(track))
                     else:
-                        await loading_msg.edit(embed=MusicEmbeds.added_to_queue(track, position))
+                        await interaction.followup.send(embed=MusicEmbeds.added_to_queue(track, position))
                 
                 elif spotify_type in ['playlist', 'album']:
                     # Playlist ou album
                     type_name = "playlist" if spotify_type == 'playlist' else "album"
-                    await loading_msg.edit(embed=MusicEmbeds.info(
-                        f"📋 Chargement de la {type_name} Spotify...",
-                        "Chargement"
-                    ))
                     
                     if spotify_type == 'playlist':
                         spotify_tracks = await player.spotify_source.get_playlist(query)
@@ -146,7 +182,7 @@ class Music(commands.Cog):
                         spotify_tracks = await player.spotify_source.get_album(query)
                     
                     if not spotify_tracks:
-                        await loading_msg.edit(embed=MusicEmbeds.error(
+                        await interaction.followup.send(embed=MusicEmbeds.error(
                             f"Impossible de charger la {type_name} Spotify."
                         ))
                         return
@@ -159,29 +195,29 @@ class Music(commands.Cog):
                             logger.info(f"Chargement de playlist interrompu (déconnexion) après {added_count} pistes")
                             break
                         
-                        track = await player.youtube_source.search(spotify_track.search_query, ctx.author)
+                        track = await player.youtube_source.search(spotify_track.search_query, interaction.user)
                         if track:
                             track.source = 'spotify'
                             await player.add_track(track)
                             added_count += 1
                     
                     if added_count > 0:
-                        await loading_msg.edit(embed=MusicEmbeds.success(
+                        await interaction.followup.send(embed=MusicEmbeds.success(
                             f"✅ {added_count} piste(s) ajoutée(s) depuis la {type_name} Spotify.",
                             f"{type_name.capitalize()} chargée"
                         ))
                     else:
-                        await loading_msg.edit(embed=MusicEmbeds.warning(
+                        await interaction.followup.send(embed=MusicEmbeds.warning(
                             "Chargement interrompu.",
                             "Annulé"
                         ))
             
             else:
                 # Recherche YouTube normale
-                track = await player.youtube_source.search(query, ctx.author)
+                track = await player.youtube_source.search(query, interaction.user)
                 
                 if not track:
-                    await loading_msg.edit(embed=MusicEmbeds.error(
+                    await interaction.followup.send(embed=MusicEmbeds.error(
                         f"Aucun résultat trouvé pour: `{query}`"
                     ))
                     return
@@ -191,116 +227,108 @@ class Music(commands.Cog):
                 
                 # Si c'est la seule piste et que rien ne joue, elle va démarrer automatiquement
                 if position == 1 and not player.is_playing():
-                    await loading_msg.edit(embed=MusicEmbeds.now_playing(track))
+                    await interaction.followup.send(embed=MusicEmbeds.now_playing(track))
                 else:
-                    await loading_msg.edit(embed=MusicEmbeds.added_to_queue(track, position))
+                    await interaction.followup.send(embed=MusicEmbeds.added_to_queue(track, position))
             
         except Exception as e:
             logger.error(f"Erreur lors de la lecture: {e}")
-            await loading_msg.edit(embed=MusicEmbeds.error(
+            await interaction.followup.send(embed=MusicEmbeds.error(
                 "Une erreur s'est produite lors de la recherche."
             ))
     
-    @commands.command(name='pause')
-    async def pause(self, ctx: commands.Context):
-        """
-        Met en pause la lecture en cours
-        
-        Usage: !pause
-        """
-        player = self._get_player(ctx)
+    @app_commands.command(name="pause", description="Met en pause la lecture en cours")
+    async def pause(self, interaction: discord.Interaction):
+        """Met en pause la lecture en cours"""
+        player = self._get_player(interaction)
         
         if not player.is_connected():
-            await ctx.send(embed=MusicEmbeds.error(
-                "Le bot n'est pas connecté à un canal vocal."
-            ))
+            await interaction.response.send_message(
+                embed=MusicEmbeds.error("Le bot n'est pas connecté à un canal vocal."),
+                ephemeral=True
+            )
             return
         
         if await player.pause():
-            await ctx.send(embed=MusicEmbeds.success(
-                "⏸️ Lecture mise en pause."
-            ))
+            await interaction.response.send_message(
+                embed=MusicEmbeds.success("⏸️ Lecture mise en pause.")
+            )
         else:
-            await ctx.send(embed=MusicEmbeds.error(
-                "Aucune musique n'est en cours de lecture."
-            ))
+            await interaction.response.send_message(
+                embed=MusicEmbeds.error("Aucune musique n'est en cours de lecture."),
+                ephemeral=True
+            )
     
-    @commands.command(name='resume', aliases=['unpause'])
-    async def resume(self, ctx: commands.Context):
-        """
-        Reprend la lecture en pause
-        
-        Usage: !resume
-        """
-        player = self._get_player(ctx)
+    @app_commands.command(name="resume", description="Reprend la lecture en pause")
+    async def resume(self, interaction: discord.Interaction):
+        """Reprend la lecture en pause"""
+        player = self._get_player(interaction)
         
         if not player.is_connected():
-            await ctx.send(embed=MusicEmbeds.error(
-                "Le bot n'est pas connecté à un canal vocal."
-            ))
+            await interaction.response.send_message(
+                embed=MusicEmbeds.error("Le bot n'est pas connecté à un canal vocal."),
+                ephemeral=True
+            )
             return
         
         if await player.resume():
-            await ctx.send(embed=MusicEmbeds.success(
-                "▶️ Lecture reprise."
-            ))
+            await interaction.response.send_message(
+                embed=MusicEmbeds.success("▶️ Lecture reprise.")
+            )
         else:
-            await ctx.send(embed=MusicEmbeds.error(
-                "La lecture n'est pas en pause."
-            ))
+            await interaction.response.send_message(
+                embed=MusicEmbeds.error("La lecture n'est pas en pause."),
+                ephemeral=True
+            )
     
-    @commands.command(name='skip', aliases=['s', 'next'])
-    async def skip(self, ctx: commands.Context):
-        """
-        Passe à la piste suivante
-        
-        Usage: !skip
-        """
-        player = self._get_player(ctx)
+    @app_commands.command(name="skip", description="Passe à la piste suivante")
+    async def skip(self, interaction: discord.Interaction):
+        """Passe à la piste suivante"""
+        player = self._get_player(interaction)
         
         if not player.is_connected():
-            await ctx.send(embed=MusicEmbeds.error(
-                "Le bot n'est pas connecté à un canal vocal."
-            ))
+            await interaction.response.send_message(
+                embed=MusicEmbeds.error("Le bot n'est pas connecté à un canal vocal."),
+                ephemeral=True
+            )
             return
         
         if await player.skip():
-            await ctx.send(embed=MusicEmbeds.success(
-                "⏭️ Piste passée."
-            ))
+            await interaction.response.send_message(
+                embed=MusicEmbeds.success("⏭️ Piste passée.")
+            )
         else:
-            await ctx.send(embed=MusicEmbeds.error(
-                "Aucune musique n'est en cours de lecture."
-            ))
+            await interaction.response.send_message(
+                embed=MusicEmbeds.error("Aucune musique n'est en cours de lecture."),
+                ephemeral=True
+            )
     
-    @commands.command(name='stop')
-    async def stop(self, ctx: commands.Context):
-        """
-        Arrête la lecture et vide la queue
-        
-        Usage: !stop
-        """
-        player = self._get_player(ctx)
+    @app_commands.command(name="stop", description="Arrête la lecture et vide la queue")
+    async def stop(self, interaction: discord.Interaction):
+        """Arrête la lecture et vide la queue"""
+        player = self._get_player(interaction)
         
         if not player.is_connected():
-            await ctx.send(embed=MusicEmbeds.error(
-                "Le bot n'est pas connecté à un canal vocal."
-            ))
+            await interaction.response.send_message(
+                embed=MusicEmbeds.error("Le bot n'est pas connecté à un canal vocal."),
+                ephemeral=True
+            )
             return
         
         await player.stop()
-        await ctx.send(embed=MusicEmbeds.success(
-            "⏹️ Lecture arrêtée et file d'attente vidée."
-        ))
+        await interaction.response.send_message(
+            embed=MusicEmbeds.success("⏹️ Lecture arrêtée et file d'attente vidée.")
+        )
     
-    @commands.command(name='queue', aliases=['q'])
-    async def queue(self, ctx: commands.Context, page: int = 1):
+    @app_commands.command(name="queue", description="Affiche la file d'attente")
+    @app_commands.describe(page="Numéro de page (optionnel)")
+    async def queue(self, interaction: discord.Interaction, page: int = 1):
         """
         Affiche la file d'attente avec pagination interactive
         
         Usage: !queue [page]
         """
-        player = self._get_player(ctx)
+        player = self._get_player(interaction)
         
         # Calculer le nombre total de pages
         queue_size = await player.queue.size()
@@ -319,26 +347,26 @@ class Music(commands.Cog):
         
         # Si une seule page, pas besoin de pagination
         if len(embeds) == 1:
-            await ctx.send(embed=embeds[0])
+            await interaction.response.send_message(embed=embeds[0])
         else:
             # Créer la vue avec pagination
             view = QueuePaginationView(embeds)
             view.current_page = max(0, min(page - 1, len(embeds) - 1))
             view._update_buttons()
-            message = await ctx.send(embed=embeds[view.current_page], view=view)
+            message = await interaction.response.send_message(embed=embeds[view.current_page], view=view)
             view.message = message
     
-    @commands.command(name='nowplaying', aliases=['np', 'current'])
-    async def nowplaying(self, ctx: commands.Context):
+    @app_commands.command(name="nowplaying", description="Affiche la piste en cours")
+    async def nowplaying(self, interaction: discord.Interaction):
         """
         Affiche la piste en cours de lecture avec contrôles interactifs
         
         Usage: !nowplaying
         """
-        player = self._get_player(ctx)
+        player = self._get_player(interaction)
         
         if not player.current:
-            await ctx.send(embed=MusicEmbeds.info(
+            await interaction.response.send_message(embed=MusicEmbeds.info(
                 "Aucune musique n'est en cours de lecture."
             ))
             return
@@ -356,130 +384,132 @@ class Music(commands.Cog):
         
         # Créer la vue avec les boutons de contrôle
         view = MusicControlView(player)
-        message = await ctx.send(embed=embed, view=view)
+        message = await interaction.response.send_message(embed=embed, view=view)
         view.message = message
     
-    @commands.command(name='volume', aliases=['vol', 'v'])
-    async def volume(self, ctx: commands.Context, volume: int):
+    @app_commands.command(name="volume", description="Règle le volume (0-100)")
+    @app_commands.describe(volume="Niveau de volume (0-100)")
+    async def volume(self, interaction: discord.Interaction, volume: int):
         """
         Règle le volume de lecture (0-100)
         
         Usage: !volume <0-100>
         """
-        player = self._get_player(ctx)
+        player = self._get_player(interaction)
         
         try:
             player.set_volume(volume / 100)
-            await ctx.send(embed=MusicEmbeds.success(
+            await interaction.response.send_message(embed=MusicEmbeds.success(
                 f"🔊 Volume réglé à {volume}%."
             ))
         except InvalidVolume as e:
-            await ctx.send(embed=MusicEmbeds.error(
+            await interaction.response.send_message(embed=MusicEmbeds.error(
                 e.message
             ))
     
-    @commands.command(name='disconnect', aliases=['dc', 'leave'])
-    async def disconnect(self, ctx: commands.Context):
+    @app_commands.command(name="disconnect", description="Déconnecte le bot du canal vocal")
+    async def disconnect(self, interaction: discord.Interaction):
         """
         Déconnecte le bot du canal vocal
         
         Usage: !disconnect
         """
-        player = self._get_player(ctx)
+        player = self._get_player(interaction)
         
         if not player.is_connected():
-            await ctx.send(embed=MusicEmbeds.error(
+            await interaction.response.send_message(embed=MusicEmbeds.error(
                 "Le bot n'est pas connecté à un canal vocal."
             ))
             return
         
         await player.disconnect()
-        await ctx.send(embed=MusicEmbeds.success(
+        await interaction.response.send_message(embed=MusicEmbeds.success(
             "👋 Déconnecté du canal vocal."
         ))
     
-    @commands.command(name='loop', aliases=['repeat'])
-    async def loop(self, ctx: commands.Context):
+    @app_commands.command(name="loop", description="Active/désactive la répétition")
+    async def loop(self, interaction: discord.Interaction):
         """
         Active/désactive la répétition de la piste actuelle
         
         Usage: !loop
         """
-        player = self._get_player(ctx)
+        player = self._get_player(interaction)
         player.loop = not player.loop
         
         status = "activée" if player.loop else "désactivée"
         emoji = "🔁" if player.loop else "➡️"
         
-        await ctx.send(embed=MusicEmbeds.success(
+        await interaction.response.send_message(embed=MusicEmbeds.success(
             f"{emoji} Répétition {status}."
         ))
     
-    @commands.command(name='shuffle')
-    async def shuffle(self, ctx: commands.Context):
+    @app_commands.command(name="shuffle", description="Mélange la file d'attente")
+    async def shuffle(self, interaction: discord.Interaction):
         """
         Mélange aléatoirement la file d'attente
         
         Usage: !shuffle
         """
-        player = self._get_player(ctx)
+        player = self._get_player(interaction)
         
         if not player.is_connected():
-            await ctx.send(embed=MusicEmbeds.error(
+            await interaction.response.send_message(embed=MusicEmbeds.error(
                 "Le bot n'est pas connecté à un canal vocal."
             ))
             return
         
         queue_size = await player.queue.size()
         if queue_size == 0:
-            await ctx.send(embed=MusicEmbeds.error(
+            await interaction.response.send_message(embed=MusicEmbeds.error(
                 "La file d'attente est vide."
             ))
             return
         
         await player.queue.shuffle()
-        await ctx.send(embed=MusicEmbeds.success(
+        await interaction.response.send_message(embed=MusicEmbeds.success(
             f"🔀 File d'attente mélangée ({queue_size} piste(s))."
         ))
     
-    @commands.command(name='clear')
-    async def clear(self, ctx: commands.Context):
+    @app_commands.command(name="clear", description="Vide la file d'attente")
+    async def clear(self, interaction: discord.Interaction):
         """
         Vide la file d'attente sans arrêter la lecture en cours
         
         Usage: !clear
         """
-        player = self._get_player(ctx)
+        player = self._get_player(interaction)
         
         if not player.is_connected():
-            await ctx.send(embed=MusicEmbeds.error(
+            await interaction.response.send_message(embed=MusicEmbeds.error(
                 "Le bot n'est pas connecté à un canal vocal."
             ))
             return
         
         queue_size = await player.queue.size()
         if queue_size == 0:
-            await ctx.send(embed=MusicEmbeds.error(
+            await interaction.response.send_message(embed=MusicEmbeds.error(
                 "La file d'attente est déjà vide."
             ))
             return
         
         await player.clear_queue()
-        await ctx.send(embed=MusicEmbeds.success(
+        await interaction.response.send_message(embed=MusicEmbeds.success(
             f"🗑️ File d'attente vidée ({queue_size} piste(s) retirée(s))."
         ))
     
-    @commands.command(name='remove', aliases=['rm'])
-    async def remove(self, ctx: commands.Context, position: int):
+    @app_commands.command(name="remove", description="Retire une piste")
+    @app_commands.describe(position="Position de la piste à retirer")
+    async def remove(self, interaction: discord.Interaction, position: int):
         """
         Retire une piste de la file d'attente
         
         Usage: !remove <position>
         """
-        player = self._get_player(ctx)
+        player = self._get_player(interaction)
         
         if not player.is_connected():
-            await ctx.send(embed=MusicEmbeds.error(
+            await interaction.response.send_message(embed=MusicEmbeds.error(
                 "Le bot n'est pas connecté à un canal vocal."
             ))
             return
@@ -487,25 +517,26 @@ class Music(commands.Cog):
         removed_track = await player.queue.remove(position)
         
         if removed_track:
-            await ctx.send(embed=MusicEmbeds.success(
+            await interaction.response.send_message(embed=MusicEmbeds.success(
                 f"🗑️ Piste retirée de la position {position}:\n`{removed_track.title}`"
             ))
         else:
-            await ctx.send(embed=MusicEmbeds.error(
+            await interaction.response.send_message(embed=MusicEmbeds.error(
                 f"Position invalide: {position}. Utilisez `!queue` pour voir les positions."
             ))
     
-    @commands.command(name='move', aliases=['mv'])
-    async def move(self, ctx: commands.Context, from_pos: int, to_pos: int):
+    @app_commands.command(name="move", description="Déplace une piste")
+    @app_commands.describe(from_pos="Position actuelle", to_pos="Nouvelle position")
+    async def move(self, interaction: discord.Interaction, from_pos: int, to_pos: int):
         """
         Déplace une piste dans la file d'attente
         
         Usage: !move <position_actuelle> <nouvelle_position>
         """
-        player = self._get_player(ctx)
+        player = self._get_player(interaction)
         
         if not player.is_connected():
-            await ctx.send(embed=MusicEmbeds.error(
+            await interaction.response.send_message(embed=MusicEmbeds.error(
                 "Le bot n'est pas connecté à un canal vocal."
             ))
             return
@@ -513,11 +544,11 @@ class Music(commands.Cog):
         moved_track = await player.queue.move(from_pos, to_pos)
         
         if moved_track:
-            await ctx.send(embed=MusicEmbeds.success(
+            await interaction.response.send_message(embed=MusicEmbeds.success(
                 f"↔️ Piste déplacée de la position {from_pos} à {to_pos}:\n`{moved_track.title}`"
             ))
         else:
-            await ctx.send(embed=MusicEmbeds.error(
+            await interaction.response.send_message(embed=MusicEmbeds.error(
                 f"Positions invalides: {from_pos} → {to_pos}. Utilisez `!queue` pour voir les positions."
             ))
 

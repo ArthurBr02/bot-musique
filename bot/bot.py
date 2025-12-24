@@ -60,16 +60,19 @@ class MusicBot(commands.Bot):
         # Synchroniser les commandes slash avec Discord
         logger.info("Synchronisation des commandes slash...")
         try:
-            # Pour développement: sync sur un serveur spécifique (instantané)
-            # guild = discord.Object(id=YOUR_GUILD_ID)
-            # self.tree.copy_global_to(guild=guild)
-            # await self.tree.sync(guild=guild)
-            
-            # Pour production: sync global (peut prendre jusqu'à 1h)
-            synced = await self.tree.sync()
-            logger.info(f"{len(synced)} commande(s) synchronisée(s)")
+            if Config.TEST_GUILDS:
+                # Sync sur les guilds de test pour des mises à jour instantanées
+                for guild_id in Config.TEST_GUILDS:
+                    guild = discord.Object(id=guild_id)
+                    self.tree.copy_global_to(guild=guild)
+                    synced = await self.tree.sync(guild=guild)
+                    logger.info(f"✅ {len(synced)} commande(s) synchronisée(s) sur le serveur de test {guild_id}")
+            else:
+                # Sync global (peut prendre jusqu'à 1h)
+                synced = await self.tree.sync()
+                logger.info(f"✅ {len(synced)} commande(s) synchronisée(s) globalement")
         except Exception as e:
-            logger.error(f"Erreur lors de la synchronisation des commandes: {e}")
+            logger.error(f"❌ Erreur lors de la synchronisation des commandes: {e}")
         
     async def _load_cogs(self):
         """Charge dynamiquement tous les cogs disponibles"""

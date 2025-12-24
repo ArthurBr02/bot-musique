@@ -9,15 +9,13 @@ from bot.config import Config
 
 def setup_logging():
     """Configure le système de logging"""
-    log_level = getattr(logging, Config.LOG_LEVEL.upper(), logging.INFO)
-    
     # Format des logs
     log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     date_format = "%Y-%m-%d %H:%M:%S"
     
     # Configuration du logger racine
     logging.basicConfig(
-        level=log_level,
+        level=logging.INFO,
         format=log_format,
         datefmt=date_format,
         handlers=[
