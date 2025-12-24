@@ -106,6 +106,17 @@ class Music(commands.Cog):
             inline=False
         )
         
+        embed.add_field(
+            name="🤖 Commandes IA",
+            value="`/chat` - Discute avec l'IA\n"
+                  "`/ai_template list` - Liste les templates IA\n"
+                  "`/ai_template create` - Crée un template IA\n"
+                  "`/ai_template set` - Active un template\n"
+                  "`/ai_template delete` - Supprime un template\n"
+                  "`/ai_clear` - Efface l'historique de conversation",
+            inline=False
+        )
+        
         embed.set_footer(text="💡 Astuce : Utilisez l'auto-complétion pour voir les paramètres de chaque commande")
         
         await interaction.response.send_message(embed=embed, ephemeral=True)

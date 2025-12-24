@@ -55,6 +55,12 @@ class Config:
     COLOR_WARNING = 0xf39c12    # Orange
     COLOR_INFO = 0x95a5a6       # Gris
     
+    # Mistral AI (optionnel)
+    MISTRAL_API_KEY: str = os.getenv("MISTRAL_API_KEY", "")
+    MISTRAL_MODEL: str = os.getenv("MISTRAL_MODEL", "mistral-small-latest")
+    MISTRAL_MAX_TOKENS: int = int(os.getenv("MISTRAL_MAX_TOKENS", "1000"))
+    MISTRAL_TEMPERATURE: float = float(os.getenv("MISTRAL_TEMPERATURE", "0.7"))
+    
     @classmethod
     def validate(cls) -> bool:
         """Valide que la configuration est correcte"""
@@ -69,6 +75,11 @@ class Config:
     def has_spotify(cls) -> bool:
         """Vérifie si les credentials Spotify sont configurés"""
         return bool(cls.SPOTIFY_CLIENT_ID and cls.SPOTIFY_CLIENT_SECRET)
+    
+    @classmethod
+    def has_mistral(cls) -> bool:
+        """Vérifie si la clé API Mistral est configurée"""
+        return bool(cls.MISTRAL_API_KEY)
 
 
 # Valider la configuration au chargement

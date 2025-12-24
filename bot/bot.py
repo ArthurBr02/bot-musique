@@ -81,6 +81,11 @@ class MusicBot(commands.Bot):
             'bot.cogs.playlist',   # Gestion des playlists
         ]
         
+        # Ajouter le cog AI si Mistral est configuré
+        if Config.has_mistral():
+            cogs_to_load.append('bot.cogs.ai')
+            logger.info("Mistral configuré - Cog AI sera chargé")
+        
         for cog in cogs_to_load:
             try:
                 await self.load_extension(cog)
