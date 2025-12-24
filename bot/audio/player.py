@@ -198,18 +198,17 @@ class MusicPlayer:
                 self._skip_requested = False
                 
                 try:
-                    # Si le stream_url n'est pas défini, le récupérer
-                    if not track.stream_url:
-                        logger.info(f"Extraction du stream pour: {track.title}")
-                        fresh_track = await self.youtube_source.search(track.url, track.requester)
-                        if fresh_track:
-                            track.stream_url = fresh_track.stream_url
-                        else:
-                            logger.error(f"Impossible d'extraire le stream pour: {track.title}")
-                            continue
+                    # Toujours régénérer l'URL du stream juste avant la lecture
+                    # pour éviter les problèmes d'expiration (URLs YouTube expirent après ~6h)
+                    logger.info(f"Régénération de l'URL du stream pour: {track.title}")
+                    stream_url = await self.youtube_source.get_fresh_stream_url(track)
                     
-                    # Créer la source audio
-                    audio_source = YouTubeSource.create_audio_source(track)
+                    if not stream_url:
+                        logger.error(f"Impossible d'obtenir l'URL du stream pour: {track.title}")
+                        continue
+                    
+                    # Créer la source audio avec l'URL fraîche
+                    audio_source = YouTubeSource.create_audio_source(stream_url)
                     audio_source = discord.PCMVolumeTransformer(audio_source, volume=self.volume)
                     
                     # Créer un événement pour attendre la fin de la lecture

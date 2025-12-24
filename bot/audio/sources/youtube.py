@@ -129,9 +129,6 @@ class YouTubeSource:
         Returns:
             Track créé
         """
-        # Récupérer l'URL du stream audio
-        stream_url = data.get('url')
-        
         # Récupérer la miniature (thumbnail)
         thumbnail = data.get('thumbnail', '')
         if not thumbnail and 'thumbnails' in data and data['thumbnails']:
@@ -140,25 +137,59 @@ class YouTubeSource:
         return Track(
             title=data.get('title', 'Titre inconnu'),
             url=data.get('webpage_url', data.get('url', '')),
-            stream_url=stream_url,
+            stream_url=None,  # Ne pas stocker l'URL du stream, elle sera régénérée avant la lecture
             duration=data.get('duration', 0),
             thumbnail=thumbnail,
             source='youtube',
             requester=requester
         )
     
+    async def get_fresh_stream_url(self, track: Track) -> Optional[str]:
+        """
+        Récupère une URL de stream fraîche pour une piste
+        Cette méthode doit être appelée juste avant la lecture pour éviter l'expiration
+        
+        Args:
+            track: Track pour laquelle obtenir l'URL
+            
+        Returns:
+            URL du stream ou None si erreur
+        """
+        try:
+            loop = asyncio.get_event_loop()
+            data = await loop.run_in_executor(
+                None,
+                lambda: self.ytdl.extract_info(track.url, download=False)
+            )
+            
+            if data is None:
+                logger.error(f"Impossible de régénérer l'URL pour: {track.title}")
+                return None
+            
+            # Si c'est une playlist, prendre la première vidéo
+            if 'entries' in data:
+                data = data['entries'][0]
+            
+            stream_url = data.get('url')
+            logger.info(f"URL de stream régénérée pour: {track.title}")
+            return stream_url
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de la régénération de l'URL: {e}")
+            return None
+    
     @staticmethod
-    def create_audio_source(track: Track):
+    def create_audio_source(stream_url: str):
         """
         Crée une source audio FFmpeg pour discord.py
         
         Args:
-            track: Track à jouer
+            stream_url: URL du stream audio
             
         Returns:
             discord.FFmpegPCMAudio
         """
         return discord.FFmpegPCMAudio(
-            track.stream_url,
+            stream_url,
             **YouTubeSource.FFMPEG_OPTIONS
         )

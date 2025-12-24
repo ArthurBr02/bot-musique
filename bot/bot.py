@@ -41,7 +41,7 @@ class MusicBot(commands.Bot):
     async def _load_cogs(self):
         """Charge dynamiquement tous les cogs disponibles"""
         cogs_to_load = [
-            # 'bot.cogs.music',      # À implémenter en Phase 3
+            'bot.cogs.music',      # Commandes musicales
             # 'bot.cogs.playlist',   # À implémenter en Phase 4
         ]
         
