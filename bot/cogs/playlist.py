@@ -278,6 +278,104 @@ class PlaylistCog(commands.Cog, name="Playlist"):
             await ctx.send(embed=MusicEmbeds.error(
                 "Une erreur s'est produite lors de l'affichage de la playlist."
             ))
+    
+    @commands.command(name='save_spotify_playlist', aliases=['savesp', 'importsp'])
+    async def save_spotify_playlist(self, ctx: commands.Context, url: str, *, name: str):
+        """
+        Crée une playlist depuis un lien Spotify (playlist ou album)
+        
+        Usage: !save_spotify_playlist <url_spotify> <nom>
+        """
+        player = self._get_player(ctx)
+        
+        # Vérifier que c'est une URL Spotify
+        if not player.spotify_source.is_spotify_url(url):
+            await ctx.send(embed=MusicEmbeds.error(
+                "Veuillez fournir une URL Spotify valide (playlist ou album)."
+            ))
+            return
+        
+        if not player.spotify_source.is_available():
+            await ctx.send(embed=MusicEmbeds.error(
+                "L'intégration Spotify n'est pas configurée."
+            ))
+            return
+        
+        # Message de chargement
+        loading_msg = await ctx.send(embed=MusicEmbeds.info(
+            f"⏳ Importation depuis Spotify...",
+            "Chargement"
+        ))
+        
+        try:
+            # Déterminer le type de lien Spotify
+            result = player.spotify_source.extract_id_from_url(url)
+            if not result:
+                await loading_msg.edit(embed=MusicEmbeds.error(
+                    "URL Spotify invalide."
+                ))
+                return
+            
+            spotify_type, spotify_id = result
+            
+            # Seules les playlists et albums sont supportés
+            if spotify_type not in ['playlist', 'album']:
+                await loading_msg.edit(embed=MusicEmbeds.error(
+                    "Seules les playlists et albums Spotify sont supportés."
+                ))
+                return
+            
+            # Récupérer les pistes Spotify
+            if spotify_type == 'playlist':
+                spotify_tracks = await player.spotify_source.get_playlist(url)
+            else:
+                spotify_tracks = await player.spotify_source.get_album(url)
+            
+            if not spotify_tracks:
+                await loading_msg.edit(embed=MusicEmbeds.error(
+                    f"Impossible de charger la {spotify_type} Spotify."
+                ))
+                return
+            
+            # Créer la playlist dans la base de données
+            playlist = await self.db.create_playlist(
+                name=name,
+                guild_id=ctx.guild.id,
+                owner_id=ctx.author.id
+            )
+            
+            # Convertir et ajouter toutes les pistes
+            added_count = 0
+            for spotify_track in spotify_tracks[:100]:  # Limiter à 100 pistes
+                # Rechercher sur YouTube pour obtenir l'URL
+                track = await player.youtube_source.search(spotify_track.search_query, ctx.author)
+                if track:
+                    track.source = 'spotify'
+                    await self.db.add_track_to_playlist(playlist.id, track)
+                    added_count += 1
+            
+            # Récupérer la playlist mise à jour
+            playlist = await self.db.get_playlist(playlist.id)
+            
+            embed = discord.Embed(
+                title="✅ Playlist Spotify importée",
+                description=f"**{name}**",
+                color=MusicEmbeds.success("").color
+            )
+            embed.add_field(name="Pistes", value=str(added_count), inline=True)
+            embed.add_field(name="Durée", value=playlist.duration_formatted, inline=True)
+            embed.add_field(name="Source", value="Spotify", inline=True)
+            
+            await loading_msg.edit(embed=embed)
+            logger.info(f"Playlist Spotify importée: {name} ({added_count} pistes)")
+            
+        except ValueError as e:
+            await loading_msg.edit(embed=MusicEmbeds.error(str(e)))
+        except Exception as e:
+            logger.error(f"Erreur lors de l'importation de la playlist Spotify: {e}")
+            await loading_msg.edit(embed=MusicEmbeds.error(
+                "Une erreur s'est produite lors de l'importation de la playlist Spotify."
+            ))
 
 
 async def setup(bot):

@@ -9,6 +9,7 @@ import discord
 from bot.audio.track import Track
 from bot.audio.queue import MusicQueue
 from bot.audio.sources.youtube import YouTubeSource
+from bot.audio.sources.spotify import SpotifySource
 from bot.config import Config
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,7 @@ class MusicPlayer:
         self._is_playing = False
         self._skip_requested = False
         self.youtube_source = YouTubeSource()
+        self.spotify_source = SpotifySource()
         # Position tracking for pause/resume
         self._playback_start_time: Optional[float] = None
         self._pause_position: float = 0.0

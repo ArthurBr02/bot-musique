@@ -51,7 +51,7 @@ class Music(commands.Cog):
     @commands.command(name='play', aliases=['p'])
     async def play(self, ctx: commands.Context, *, query: str):
         """
-        Joue une musique depuis YouTube ou l'ajoute à la queue
+        Joue une musique depuis YouTube/Spotify ou l'ajoute à la queue
         
         Usage: !play <URL ou recherche>
         """
@@ -68,23 +68,120 @@ class Music(commands.Cog):
         ))
         
         try:
-            # Rechercher la piste
-            track = await player.youtube_source.search(query, ctx.author)
+            # Vérifier si c'est une URL Spotify
+            if player.spotify_source.is_spotify_url(query):
+                if not player.spotify_source.is_available():
+                    await loading_msg.edit(embed=MusicEmbeds.error(
+                        "L'intégration Spotify n'est pas configurée. Veuillez configurer SPOTIFY_CLIENT_ID et SPOTIFY_CLIENT_SECRET."
+                    ))
+                    return
+                
+                # Déterminer le type de lien Spotify
+                result = player.spotify_source.extract_id_from_url(query)
+                if not result:
+                    await loading_msg.edit(embed=MusicEmbeds.error(
+                        "URL Spotify invalide."
+                    ))
+                    return
+                
+                spotify_type, spotify_id = result
+                
+                # Traiter selon le type
+                if spotify_type == 'track':
+                    # Piste unique
+                    spotify_track = await player.spotify_source.get_track(query)
+                    if not spotify_track:
+                        await loading_msg.edit(embed=MusicEmbeds.error(
+                            "Impossible de récupérer la piste Spotify."
+                        ))
+                        return
+                    
+                    # Convertir en recherche YouTube
+                    await loading_msg.edit(embed=MusicEmbeds.info(
+                        f"🎵 Conversion Spotify → YouTube: `{spotify_track.search_query}`...",
+                        "Chargement"
+                    ))
+                    
+                    track = await player.youtube_source.search(spotify_track.search_query, ctx.author)
+                    if not track:
+                        await loading_msg.edit(embed=MusicEmbeds.error(
+                            f"Impossible de trouver sur YouTube: `{spotify_track.search_query}`"
+                        ))
+                        return
+                    
+                    # Mettre à jour la source pour indiquer Spotify
+                    track.source = 'spotify'
+                    
+                    # Ajouter à la queue
+                    position = await player.add_track(track)
+                    
+                    if position == 1 and not player.is_playing():
+                        await loading_msg.edit(embed=MusicEmbeds.now_playing(track))
+                    else:
+                        await loading_msg.edit(embed=MusicEmbeds.added_to_queue(track, position))
+                
+                elif spotify_type in ['playlist', 'album']:
+                    # Playlist ou album
+                    type_name = "playlist" if spotify_type == 'playlist' else "album"
+                    await loading_msg.edit(embed=MusicEmbeds.info(
+                        f"📋 Chargement de la {type_name} Spotify...",
+                        "Chargement"
+                    ))
+                    
+                    if spotify_type == 'playlist':
+                        spotify_tracks = await player.spotify_source.get_playlist(query)
+                    else:
+                        spotify_tracks = await player.spotify_source.get_album(query)
+                    
+                    if not spotify_tracks:
+                        await loading_msg.edit(embed=MusicEmbeds.error(
+                            f"Impossible de charger la {type_name} Spotify."
+                        ))
+                        return
+                    
+                    # Convertir et ajouter toutes les pistes
+                    added_count = 0
+                    for spotify_track in spotify_tracks[:50]:  # Limiter à 50 pistes
+                        # Vérifier si le player est toujours connecté
+                        if not player.is_connected():
+                            logger.info(f"Chargement de playlist interrompu (déconnexion) après {added_count} pistes")
+                            break
+                        
+                        track = await player.youtube_source.search(spotify_track.search_query, ctx.author)
+                        if track:
+                            track.source = 'spotify'
+                            await player.add_track(track)
+                            added_count += 1
+                    
+                    if added_count > 0:
+                        await loading_msg.edit(embed=MusicEmbeds.success(
+                            f"✅ {added_count} piste(s) ajoutée(s) depuis la {type_name} Spotify.",
+                            f"{type_name.capitalize()} chargée"
+                        ))
+                    else:
+                        await loading_msg.edit(embed=MusicEmbeds.warning(
+                            "Chargement interrompu.",
+                            "Annulé"
+                        ))
             
-            if not track:
-                await loading_msg.edit(embed=MusicEmbeds.error(
-                    f"Aucun résultat trouvé pour: `{query}`"
-                ))
-                return
-            
-            # Ajouter à la queue
-            position = await player.add_track(track)
-            
-            # Si c'est la seule piste et que rien ne joue, elle va démarrer automatiquement
-            if position == 1 and not player.is_playing():
-                await loading_msg.edit(embed=MusicEmbeds.now_playing(track))
             else:
-                await loading_msg.edit(embed=MusicEmbeds.added_to_queue(track, position))
+                # Recherche YouTube normale
+                track = await player.youtube_source.search(query, ctx.author)
+                
+                if not track:
+                    await loading_msg.edit(embed=MusicEmbeds.error(
+                        f"Aucun résultat trouvé pour: `{query}`"
+                    ))
+                    return
+                
+                # Ajouter à la queue
+                position = await player.add_track(track)
+                
+                # Si c'est la seule piste et que rien ne joue, elle va démarrer automatiquement
+                if position == 1 and not player.is_playing():
+                    await loading_msg.edit(embed=MusicEmbeds.now_playing(track))
+                else:
+                    await loading_msg.edit(embed=MusicEmbeds.added_to_queue(track, position))
             
         except Exception as e:
             logger.error(f"Erreur lors de la lecture: {e}")
