@@ -233,7 +233,17 @@ class MusicPlayer:
             return True
             
         except Exception as e:
-            logger.error(f"Erreur lors de la reprise: {e}")
+            logger.error(
+                f"Erreur lors de la reprise: {e}",
+                exc_info=True  # Inclut la stack trace complète
+            )
+            logger.error(
+                f"État du voice_client: "
+                f"connected={self.voice_client.is_connected() if self.voice_client else False}, "
+                f"playing={self.voice_client.is_playing() if self.voice_client else False}, "
+                f"paused={self.voice_client.is_paused() if self.voice_client else False}, "
+                f"Piste: {self.current.title if self.current else 'None'}"
+            )
             return False
     
     async def skip(self) -> bool:
@@ -365,12 +375,32 @@ class MusicPlayer:
                     
                     # Lancer la lecture
                     if self.voice_client and self.voice_client.is_connected():
+                        # Vérifier l'état du voice_client avant de jouer
+                        if self.voice_client.is_playing():
+                            logger.warning(
+                                f"Le voice_client est déjà en train de jouer. "
+                                f"État: is_playing={self.voice_client.is_playing()}, "
+                                f"is_paused={self.voice_client.is_paused()}, "
+                                f"Piste actuelle: {self.current.title if self.current else 'None'}, "
+                                f"Nouvelle piste: {track.title}"
+                            )
+                            # Arrêter la lecture actuelle avant de continuer
+                            self.voice_client.stop()
+                            # Attendre un peu pour que l'arrêt soit effectif
+                            await asyncio.sleep(0.2)
+                        
                         self._is_playing = True
                         
                         # Initialiser le temps de départ et réinitialiser la position de pause
                         self._playback_start_time = time.time()
                         self._pause_position = 0.0
                         self._update_activity()
+                        
+                        logger.info(
+                            f"Démarrage de la lecture: {track.title} "
+                            f"(État: is_playing={self.voice_client.is_playing()}, "
+                            f"is_paused={self.voice_client.is_paused()})"
+                        )
                         
                         self.voice_client.play(audio_source, after=after_playback)
                         logger.info(f"Lecture en cours: {track.title}")
@@ -383,7 +413,16 @@ class MusicPlayer:
                             await self.queue.add(track)
                     
                 except Exception as e:
-                    logger.error(f"Erreur lors de la lecture de {track.title}: {e}")
+                    logger.error(
+                        f"Erreur lors de la lecture de {track.title}: {e}",
+                        exc_info=True  # Inclut la stack trace complète
+                    )
+                    logger.error(
+                        f"État du voice_client: "
+                        f"connected={self.voice_client.is_connected() if self.voice_client else False}, "
+                        f"playing={self.voice_client.is_playing() if self.voice_client else False}, "
+                        f"paused={self.voice_client.is_paused() if self.voice_client else False}"
+                    )
                     continue
                 
                 finally:
