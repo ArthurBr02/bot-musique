@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import re
 from typing import Optional, List, Dict, Any
 import discord
 import yt_dlp
@@ -39,6 +40,34 @@ class YouTubeSource:
     
     def __init__(self):
         self.ytdl = yt_dlp.YoutubeDL(self.YTDL_OPTIONS)
+    
+    def is_youtube_url(self, url: str) -> bool:
+        """
+        Vérifie si une URL est une URL YouTube
+        
+        Args:
+            url: URL à vérifier
+            
+        Returns:
+            True si c'est une URL YouTube
+        """
+        youtube_patterns = [
+            r'(https?://)?(www\.)?(youtube\.com|youtu\.be)/',
+        ]
+        return any(re.match(pattern, url) for pattern in youtube_patterns)
+    
+    def is_youtube_playlist_url(self, url: str) -> bool:
+        """
+        Vérifie si une URL est une playlist YouTube
+        
+        Args:
+            url: URL à vérifier
+            
+        Returns:
+            True si c'est une playlist YouTube
+        """
+        # Vérifier la présence de 'list=' dans l'URL
+        return 'list=' in url and self.is_youtube_url(url)
     
     async def search(self, query: str, requester: discord.Member) -> Optional[Track]:
         """

@@ -223,6 +223,39 @@ class Music(commands.Cog):
                             "Annulé"
                         ))
             
+            # Vérifier si c'est une playlist YouTube
+            elif player.youtube_source.is_youtube_playlist_url(query):
+                # Extraire toutes les vidéos de la playlist
+                youtube_tracks = await player.youtube_source.extract_playlist(query, interaction.user)
+                
+                if not youtube_tracks:
+                    await interaction.followup.send(embed=MusicEmbeds.error(
+                        "Impossible de charger la playlist YouTube."
+                    ))
+                    return
+                
+                # Ajouter toutes les pistes
+                added_count = 0
+                for track in youtube_tracks:
+                    # Vérifier si le player est toujours connecté
+                    if not player.is_connected():
+                        logger.info(f"Chargement de playlist interrompu (déconnexion) après {added_count} pistes")
+                        break
+                    
+                    await player.add_track(track)
+                    added_count += 1
+                
+                if added_count > 0:
+                    await interaction.followup.send(embed=MusicEmbeds.success(
+                        f"✅ {added_count} piste(s) ajoutée(s) depuis la playlist YouTube.",
+                        "Playlist chargée"
+                    ))
+                else:
+                    await interaction.followup.send(embed=MusicEmbeds.warning(
+                        "Chargement interrompu.",
+                        "Annulé"
+                    ))
+            
             else:
                 # Recherche YouTube normale
                 track = await player.youtube_source.search(query, interaction.user)
