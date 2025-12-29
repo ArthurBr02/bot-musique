@@ -59,6 +59,7 @@ class AI(commands.Cog):
             guild_id = interaction.guild_id
             channel_id = interaction.channel_id
             user_id = interaction.user.id
+            username = interaction.user.display_name
             
             # Récupérer le template actif
             system_prompt = await self.template_manager.get_active_template(guild_id)
@@ -66,16 +67,19 @@ class AI(commands.Cog):
             # Récupérer l'historique de conversation
             history = await self.conversation_manager.get_history(guild_id, channel_id, limit=20)
             
+            # Ajouter le pseudo devant le message pour le contexte
+            message_with_username = f"{username}: {message}"
+            
             # Ajouter le message de l'utilisateur à l'historique
             await self.conversation_manager.add_message(
-                guild_id, channel_id, user_id, "user", message
+                guild_id, channel_id, user_id, "user", message_with_username
             )
             
             # Formater l'historique pour l'API
             api_messages = self.conversation_manager.format_for_api(history)
             
-            # Ajouter le nouveau message
-            api_messages.append({"role": "user", "content": message})
+            # Ajouter le nouveau message avec le pseudo
+            api_messages.append({"role": "user", "content": message_with_username})
             
             # Obtenir la réponse de l'IA
             response = await self.mistral_client.chat_completion(api_messages, system_prompt)
