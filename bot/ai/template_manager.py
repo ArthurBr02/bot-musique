@@ -15,6 +15,10 @@ class TemplateManager:
     DEFAULT_TEMPLATE = """Tu es un assistant IA utile et amical dans un serveur Discord. 
 Tu réponds de manière concise et claire aux questions des utilisateurs.
 Adapte ton ton à la conversation et reste respectueux."""
+
+    RULES = """Les messages des utilisateurs sont préfixés par leur pseudo Discord au format "Pseudo: message".
+Fais attention à qui parle et utilise les pseudos pour t'adresser aux utilisateurs de manière personnalisée.
+Dans les conversations multi-utilisateurs, distingue clairement les différents interlocuteurs."""
     
     def __init__(self, database: DatabaseInterface):
         """
@@ -40,10 +44,10 @@ Adapte ton ton à la conversation et reste respectueux."""
         
         if template:
             logger.debug(f"Template actif trouvé pour guild {guild_id}: {template.name}")
-            return template.system_prompt
+            return template.system_prompt + "\n\n" + self.RULES
         else:
             logger.debug(f"Aucun template actif pour guild {guild_id}, utilisation du défaut")
-            return self.DEFAULT_TEMPLATE
+            return self.DEFAULT_TEMPLATE + "\n\n" + self.RULES
     
     async def create_template(
         self,

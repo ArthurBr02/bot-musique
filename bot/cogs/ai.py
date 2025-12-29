@@ -80,7 +80,7 @@ class AI(commands.Cog):
             
             # Ajouter le nouveau message avec le pseudo
             api_messages.append({"role": "user", "content": message_with_username})
-            
+
             # Obtenir la réponse de l'IA
             response = await self.mistral_client.chat_completion(api_messages, system_prompt)
             
