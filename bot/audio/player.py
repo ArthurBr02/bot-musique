@@ -48,6 +48,11 @@ class MusicPlayer:
         self._pause_position: float = 0.0
         # Activity tracking for auto-disconnect
         self._last_activity_time: Optional[float] = time.time()
+        # Stream URL tracking for refresh
+        self._stream_url_time: Optional[float] = None
+        self._current_stream_url: Optional[str] = None
+        # Monitoring task for stream health
+        self._monitor_task: Optional[asyncio.Task] = None
     
     async def connect(self, channel: discord.VoiceChannel, timeout: int = None) -> bool:
         """
@@ -112,6 +117,14 @@ class MusicPlayer:
                 except asyncio.CancelledError:
                     pass
             
+            # Annuler la tâche de monitoring
+            if self._monitor_task and not self._monitor_task.done():
+                self._monitor_task.cancel()
+                try:
+                    await self._monitor_task
+                except asyncio.CancelledError:
+                    pass
+            
             # Déconnecter
             if self.voice_client:
                 await self.voice_client.disconnect()
@@ -155,6 +168,9 @@ class MusicPlayer:
         # Réinitialiser le suivi de position
         self._playback_start_time = None
         self._pause_position = 0.0
+        # Réinitialiser le suivi du stream
+        self._stream_url_time = None
+        self._current_stream_url = None
         logger.info("Lecture arrêtée")
     
     async def clear_queue(self) -> None:
@@ -227,6 +243,9 @@ class MusicPlayer:
             
             # Réinitialiser le temps de départ pour le suivi de position
             self._playback_start_time = time.time()
+            # Mettre à jour le tracking de l'URL du stream
+            self._stream_url_time = time.time()
+            self._current_stream_url = stream_url
             self._update_activity()
             
             logger.info(f"Lecture reprise avec URL fraîche: {self.current.title}")
@@ -320,9 +339,106 @@ class MusicPlayer:
         inactive_time = time.time() - self._last_activity_time
         return inactive_time >= Config.INACTIVITY_TIMEOUT
     
+    def _should_refresh_stream_url(self) -> bool:
+        """
+        Vérifie si l'URL du stream doit être rafraîchie
+        Les URLs YouTube expirent généralement après 6 heures
+        On rafraîchit après 4 heures pour avoir une marge
+        
+        Returns:
+            True si l'URL doit être rafraîchie
+        """
+        if self._stream_url_time is None:
+            return False
+        
+        stream_age = time.time() - self._stream_url_time
+        # Rafraîchir après 4 heures (14400 secondes)
+        return stream_age >= 14400
+    
+    async def _refresh_stream_url(self) -> bool:
+        """
+        Rafraîchit l'URL du stream pendant la lecture
+        Utilisé pour éviter l'expiration des URLs YouTube
+        
+        Returns:
+            True si le rafraîchissement a réussi
+        """
+        if not self.current or not self.voice_client or not self.voice_client.is_playing():
+            return False
+        
+        try:
+            # Sauvegarder la position actuelle
+            current_position = self.get_current_position()
+            
+            logger.info(f"Rafraîchissement de l'URL du stream pour: {self.current.title} (position: {current_position:.1f}s)")
+            
+            # Obtenir une nouvelle URL
+            stream_url = await self.youtube_source.get_fresh_stream_url(self.current)
+            
+            if not stream_url:
+                logger.error(f"Impossible de rafraîchir l'URL pour: {self.current.title}")
+                return False
+            
+            # Arrêter la lecture actuelle
+            self.voice_client.stop()
+            await asyncio.sleep(0.2)
+            
+            # Créer une nouvelle source audio à partir de la position actuelle
+            audio_source = YouTubeSource.create_audio_source(stream_url, current_position)
+            audio_source = discord.PCMVolumeTransformer(audio_source, volume=self.volume)
+            
+            # Créer un événement pour la fin de lecture
+            playback_finished = asyncio.Event()
+            
+            def after_playback(error):
+                if error:
+                    logger.error(f"Erreur de lecture après rafraîchissement: {error}")
+                playback_finished.set()
+            
+            # Relancer la lecture
+            self.voice_client.play(audio_source, after=after_playback)
+            
+            # Mettre à jour le tracking
+            self._playback_start_time = time.time()
+            self._pause_position = current_position
+            self._stream_url_time = time.time()
+            self._current_stream_url = stream_url
+            
+            logger.info(f"Stream URL rafraîchi avec succès pour: {self.current.title}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Erreur lors du rafraîchissement du stream: {e}", exc_info=True)
+            return False
+    
+    async def _stream_monitor_loop(self) -> None:
+        """
+        Boucle de monitoring qui vérifie la santé du stream
+        et rafraîchit l'URL si nécessaire
+        """
+        logger.info("Boucle de monitoring du stream démarrée")
+        
+        try:
+            while True:
+                await asyncio.sleep(60)  # Vérifier toutes les minutes
+                
+                # Vérifier si on doit rafraîchir l'URL
+                if self._should_refresh_stream_url() and self._is_playing:
+                    logger.info("L'URL du stream a besoin d'être rafraîchie (4h)")
+                    await self._refresh_stream_url()
+                
+        except asyncio.CancelledError:
+            logger.info("Boucle de monitoring arrêtée")
+        except Exception as e:
+            logger.error(f"Erreur dans la boucle de monitoring: {e}")
+    
     async def _player_loop(self) -> None:
         """Boucle principale de lecture audio"""
         logger.info("Boucle de lecture démarrée")
+        
+        # Démarrer la boucle de monitoring
+        if not self._monitor_task or self._monitor_task.done():
+            self._monitor_task = asyncio.create_task(self._stream_monitor_loop())
         
         try:
             while True:
@@ -394,6 +510,9 @@ class MusicPlayer:
                         # Initialiser le temps de départ et réinitialiser la position de pause
                         self._playback_start_time = time.time()
                         self._pause_position = 0.0
+                        # Mettre à jour le tracking de l'URL du stream
+                        self._stream_url_time = time.time()
+                        self._current_stream_url = stream_url
                         self._update_activity()
                         
                         logger.info(
