@@ -36,7 +36,7 @@ class YouTubeSource:
     FFMPEG_OPTIONS = {
         'before_options': (
             '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 10 '
-            '-reconnect_at_eof 1 -multiple_requests 1 -http_persistent 1'
+            '-reconnect_at_eof 1 -multiple_requests 1'
         ),
         'options': '-vn -loglevel error'
     }
