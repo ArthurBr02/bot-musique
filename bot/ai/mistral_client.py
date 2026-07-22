@@ -2,7 +2,7 @@
 
 import logging
 from typing import List, Dict, Optional
-from mistralai import Mistral
+from mistralai.client import Mistral
 
 from bot.config import Config
 
@@ -67,8 +67,8 @@ class MistralClient:
             
             logger.debug(f"Envoi de {len(messages)} message(s) à Mistral")
             
-            # Appel à l'API Mistral
-            response = self.client.chat.complete(
+            # Appel à l'API Mistral (async pour ne pas bloquer l'event loop)
+            response = await self.client.chat.complete_async(
                 model=self.model,
                 messages=messages,
                 max_tokens=self.max_tokens,

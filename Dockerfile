@@ -9,4 +9,4 @@ RUN apk add --no-cache --virtual .build-deps gcc musl-dev python3-dev \
 
 COPY . .
 
-CMD ["python3", "main.py"]
+CMD ["python3", "run.py"]
