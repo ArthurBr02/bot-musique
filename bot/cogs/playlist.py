@@ -6,7 +6,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from bot.database.sqlite import SQLiteDatabase
+from bot.database.postgres import PostgresDatabase
 from bot.database.models import Playlist
 from bot.audio.player import MusicPlayer
 from bot.utils.embeds import MusicEmbeds
@@ -19,7 +19,7 @@ class PlaylistCog(commands.Cog):
     
     def __init__(self, bot):
         self.bot = bot
-        self.db: SQLiteDatabase = bot.db
+        self.db: PostgresDatabase = bot.db
     
     def _get_player(self, interaction: discord.Interaction) -> MusicPlayer:
         """Récupère le player pour le serveur actuel"""

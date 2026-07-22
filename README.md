@@ -17,8 +17,29 @@ Bot Discord en Python permettant de diffuser de la musique depuis YouTube et Spo
 
 - Python 3.8 ou supérieur
 - FFmpeg installé et accessible dans le PATH
+- PostgreSQL 12 ou supérieur (base de données et utilisateur créés)
 - Un bot Discord (token requis)
 - Credentials Spotify (optionnel)
+
+### Installation de PostgreSQL
+
+**Linux:**
+```bash
+sudo apt install postgresql
+```
+
+**macOS:**
+```bash
+brew install postgresql
+```
+
+Créer la base de données et l'utilisateur:
+```bash
+sudo -u postgres psql -c "CREATE USER music_bot WITH PASSWORD 'votre_mot_de_passe';"
+sudo -u postgres psql -c "CREATE DATABASE music_bot OWNER music_bot;"
+```
+
+Les tables sont créées automatiquement au démarrage du bot.
 
 ### Installation de FFmpeg
 
@@ -78,6 +99,14 @@ cp .env.example .env
 Éditer le fichier `.env`:
 ```env
 DISCORD_TOKEN=votre_token_discord_ici
+
+# PostgreSQL (requis)
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=music_bot
+DB_PASSWORD=votre_mot_de_passe
+DB_NAME=music_bot
+
 SPOTIFY_CLIENT_ID=votre_client_id_spotify  # Optionnel
 SPOTIFY_CLIENT_SECRET=votre_client_secret_spotify  # Optionnel
 ```
@@ -157,6 +186,11 @@ ba-tbot-v2/
 
 **Erreur lors de la lecture YouTube:**
 - Mettre à jour yt-dlp: `pip install --upgrade yt-dlp`
+
+**Erreur de connexion à la base de données:**
+- Vérifier que PostgreSQL est démarré (`sudo service postgresql status` / `brew services list`)
+- Vérifier les identifiants `DB_*` dans `.env`
+- Vérifier que la base et l'utilisateur existent
 
 ## 📝 Licence
 

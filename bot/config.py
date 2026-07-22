@@ -45,8 +45,12 @@ class Config:
     ALONE_TIMEOUT: int = int(os.getenv("ALONE_TIMEOUT", "60"))  # 1 minute
     CONNECTION_TIMEOUT: int = int(os.getenv("CONNECTION_TIMEOUT", "10"))  # 10 secondes
     
-    # Base de données
-    DATABASE_PATH: str = os.getenv("DATABASE_PATH", "data/music_bot.db")
+    # Base de données PostgreSQL
+    DB_HOST: str = os.getenv("DB_HOST", "localhost")
+    DB_PORT: int = int(os.getenv("DB_PORT", "5432"))
+    DB_USER: str = os.getenv("DB_USER", "music_bot")
+    DB_PASSWORD: str = os.getenv("DB_PASSWORD", "")
+    DB_NAME: str = os.getenv("DB_NAME", "music_bot")
     
     # Couleurs pour les embeds Discord
     COLOR_PRIMARY = 0x3498db    # Bleu

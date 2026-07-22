@@ -8,7 +8,7 @@ from discord.ext import commands
 
 from bot.config import Config
 from bot.audio.player import MusicPlayer
-from bot.database.sqlite import SQLiteDatabase
+from bot.database.postgres import PostgresDatabase
 from bot.utils.exceptions import (
     MusicError,
     NotInVoiceChannel,
@@ -44,14 +44,14 @@ class MusicBot(commands.Bot):
         self.players: Dict[int, any] = {}
         
         # Base de données pour les playlists
-        self.db: Optional[SQLiteDatabase] = None
+        self.db: Optional[PostgresDatabase] = None
         
     async def setup_hook(self):
         """Hook appelé lors de l'initialisation du bot"""
         logger.info("Initialisation du bot...")
         
         # Initialiser la base de données
-        self.db = SQLiteDatabase()
+        self.db = PostgresDatabase()
         await self.db.init()
         
         # Charger les cogs (modules de commandes)
